@@ -10,7 +10,6 @@ export async function initOneSignal(userId: string) {
     await OneSignal.init({
       appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID!,
       serviceWorkerPath: '/OneSignalSDKWorker.js',
-      notifyButton: { enable: false },
       allowLocalhostAsSecureOrigin: false,
     })
   }

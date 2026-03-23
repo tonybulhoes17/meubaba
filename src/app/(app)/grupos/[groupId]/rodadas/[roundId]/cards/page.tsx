@@ -170,10 +170,8 @@ export default function CardsPage() {
     setGerando(false)
   }
 
-  // Quais cards o usuário pode gerar
-  const cardsDisponiveis: TipoCard[] = isAdmin
-    ? ['craque', 'bola_murcha', 'artilheiros', 'assistencias', 'notas']
-    : ['craque'] // jogador só gera craque se for o vencedor
+  // Todos podem gerar todos os cards
+  const cardsDisponiveis: TipoCard[] = ['craque', 'bola_murcha', 'artilheiros', 'assistencias', 'notas']
 
   if (loading || !dados) return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

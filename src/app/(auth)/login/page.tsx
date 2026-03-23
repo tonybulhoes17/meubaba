@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Eye, EyeOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -61,14 +63,23 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              className="input-baba"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="input-baba pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -86,7 +97,13 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-5 text-center text-sm text-gray-500">
+        <div className="mt-4 text-center">
+          <Link href="/recuperar-senha" className="text-sm text-gray-400 hover:text-green-600 transition-colors">
+            Esqueci minha senha
+          </Link>
+        </div>
+
+        <div className="mt-4 text-center text-sm text-gray-500">
           Não tem conta?{' '}
           <Link href="/cadastro" className="text-green-600 font-semibold hover:underline">
             Cadastre-se grátis

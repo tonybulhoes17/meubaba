@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X, Download } from 'lucide-react'
 
-type Plataforma = 'android' | 'ios' | null
+type Plataforma = 'android' | 'android-manual' | 'ios' | null
 
 export default function PWAInstallBanner() {
   const [plataforma, setPlataforma] = useState<Plataforma>(null)

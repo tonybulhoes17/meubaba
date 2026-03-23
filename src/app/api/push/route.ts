@@ -11,10 +11,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No user_ids' }, { status: 400 })
     }
 
+    // Envia por tag user_id (compatível com OneSignal.User.addTags)
     const payload = {
       app_id: ONESIGNAL_APP_ID,
-      include_aliases: { external_id: user_ids },
-      target_channel: 'push',
+      filters: user_ids.flatMap((id: string, i: number) => [
+        ...(i > 0 ? [{ operator: 'OR' }] : []),
+        { field: 'tag', key: 'user_id', relation: '=', value: id },
+      ]),
       headings: { en: title, pt: title },
       contents: { en: body, pt: body },
       url: url

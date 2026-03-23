@@ -7,7 +7,6 @@ import { Home, MessageCircle, Bell, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import PWAInstallBanner from '@/components/PWAInstallBanner'
-import { initOneSignal } from '@/lib/onesignal'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -30,7 +29,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Quando entra na página de notificações, limpa o badge
   useEffect(() => {
     if (pathname === '/notificacoes') setTemNotificacao(false)
     if (pathname.includes('/chat')) setTemMensagem(false)
@@ -40,9 +38,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setMyUserId(user.id)
-
-    // Inicializa OneSignal com o user_id do Supabase como external_id
-    initOneSignal(user.id).catch(err => console.error('OneSignal init error:', err))
 
     // Verifica notificações não lidas existentes
     const { count: notifCount } = await supabase
@@ -78,7 +73,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       })
       .subscribe()
 
-    // Realtime — nova mensagem no chat (só para badge, não interfere no chat aberto)
+    // Realtime — nova mensagem no chat
     supabase.channel(`chat-badge-${user.id}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'chat_messages',

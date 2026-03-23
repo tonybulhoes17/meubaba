@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { OneSignalInit } from '@/components/OneSignalInit'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'MeuBaba ⚽',
-  description: 'Organize seu baba de futebol com estatísticas, rankings e muito mais!',
+  title: 'MeuBaba',
+  description: 'Organize seu baba de futebol com estatisticas, rankings e muito mais!',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: 'website',
-    title: 'MeuBaba ⚽',
+    title: 'MeuBaba',
     description: 'Organize seu baba de futebol!',
   },
 }
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={inter.className}>
+        <OneSignalInit />
         {children}
       </body>
     </html>

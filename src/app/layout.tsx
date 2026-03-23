@@ -10,16 +10,19 @@ export const metadata: Metadata = {
   description: 'Organize seu baba de futebol com estatisticas, rankings e muito mais!',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'MeuBaba',
   },
-  formatDetection: {
-    telephone: false,
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
   openGraph: {
     type: 'website',
     title: 'MeuBaba',
     description: 'Organize seu baba de futebol!',
+  },
+  formatDetection: {
+    telephone: false,
   },
 }
 
@@ -28,7 +31,6 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,
 }
 
 export default function RootLayout({
@@ -38,6 +40,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="MeuBaba" />
+      </head>
       <body className={inter.className}>
         <OneSignalInit />
         {children}

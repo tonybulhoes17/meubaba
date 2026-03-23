@@ -7,12 +7,14 @@ import { Home, MessageCircle, Bell, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import PWAInstallBanner from '@/components/PWAInstallBanner'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { fetchProfile } = useAuthStore()
   const supabase = createClient()
+  usePushNotifications()
 
   const [temNotificacao, setTemNotificacao] = useState(false)
   const [temMensagem, setTemMensagem] = useState(false)

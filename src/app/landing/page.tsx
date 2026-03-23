@@ -55,7 +55,7 @@ export default function LandingPage() {
           {/* Stats do app */}
           <div style={{ display: 'flex', gap: '2rem', marginTop: '4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
             {[
-              { num: '100%', label: 'Gratuito para sempre' },
+              { num: '100%', label: 'Competição garantida' },
               { num: '∞', label: 'Jogadores por grupo' },
               { num: '7', label: 'Tipos de ranking' },
             ].map(s => (

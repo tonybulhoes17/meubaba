@@ -1,25 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import webpush from 'web-push'
 import { createClient } from '@supabase/supabase-js'
-
-webpush.setVapidDetails(
-  process.env.VAPID_EMAIL!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function POST(req: NextRequest) {
   try {
     const { user_ids, title, body, url } = await req.json()
-
     if (!user_ids?.length) return NextResponse.json({ ok: true })
 
-    // Busca subscriptions dos usuários
+    // Importa e configura web-push dentro da função (evita erro no build)
+    const webpush = await import('web-push')
+    webpush.default.setVapidDetails(
+      process.env.VAPID_EMAIL!,
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+      process.env.VAPID_PRIVATE_KEY!
+    )
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
     const { data: subs } = await supabase
       .from('push_subscriptions')
       .select('subscription')
@@ -35,9 +34,8 @@ export async function POST(req: NextRequest) {
       url: url ?? '/',
     })
 
-    // Envia para todas as subscriptions em paralelo
     await Promise.allSettled(
-      subs.map(s => webpush.sendNotification(s.subscription, payload))
+      subs.map(s => webpush.default.sendNotification(s.subscription, payload))
     )
 
     return NextResponse.json({ ok: true })

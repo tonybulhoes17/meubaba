@@ -370,12 +370,15 @@ export default function ChatPage() {
     </div>
   )
 
-  return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', paddingTop: '4rem', paddingBottom: '5rem', boxSizing: 'border-box', display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
-      <div style={{ width: '100%', maxWidth: '1100px', height: 'calc(100vh - 9rem)', display: 'flex', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', margin: '0 1rem' }}>
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
-        {/* SIDEBAR */}
-        <div style={{ width: '300px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderRight: '1px solid #e2e8f0' }}>
+  return (
+    <div style={{ height: '100dvh', backgroundColor: '#f0f2f5', display: 'flex', alignItems: 'stretch', justifyContent: 'center', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', maxWidth: '1100px', height: '100dvh', display: 'flex', overflow: 'hidden' }}>
+
+        {/* SIDEBAR — esconde no mobile */}
+        <div style={{ width: '300px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderRight: '1px solid #e2e8f0' }}
+          className="hidden md:flex">
           <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', padding: '1rem' }}>
             <p style={{ color: 'white', fontWeight: 800, fontSize: '1rem', margin: '0 0 2px' }}>💬 Conversas</p>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: 0 }}>{grupos.length} grupo{grupos.length !== 1 ? 's' : ''}</p>
@@ -405,7 +408,7 @@ export default function ChatPage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, backgroundColor: '#f8fafc', position: 'relative' }}>
 
           {/* Header */}
-          <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', padding: '1rem 1.25rem', flexShrink: 0 }}>
+          <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', padding: '1rem 1.25rem', paddingTop: 'max(1rem, env(safe-area-inset-top))', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
               <button onClick={() => router.back()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', flexShrink: 0 }}><ArrowLeft size={20} /></button>
               <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1rem' }}>⚽</div>
@@ -557,7 +560,8 @@ export default function ChatPage() {
           )}
 
           {/* Input */}
-          <div style={{ backgroundColor: 'white', borderTop: '1px solid #e2e8f0', padding: '0.625rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+          <div style={{ backgroundColor: 'white', borderTop: '1px solid #e2e8f0', padding: '0.625rem 1rem', paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}
+            className="md:pb-3">
             <button onClick={() => fileRef.current?.click()} disabled={uploadingMedia}
               style={{ width: '36px', height: '36px', borderRadius: '9999px', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {uploadingMedia ? <Loader2 size={16} color="#64748b" /> : <Image size={16} color="#64748b" />}

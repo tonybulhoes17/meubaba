@@ -1,7 +1,7 @@
 {
-  "name": "MeuBaba ⚽",
+  "name": "MeuBaba",
   "short_name": "MeuBaba",
-  "description": "Organize seu baba de futebol com estatísticas e rankings",
+  "description": "Organize seu baba de futebol com estatisticas e rankings",
   "start_url": "/grupos",
   "display": "standalone",
   "background_color": "#16a34a",

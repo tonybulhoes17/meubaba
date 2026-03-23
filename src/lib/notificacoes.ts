@@ -1,3 +1,8 @@
+// ✅ Este arquivo NÃO precisa de alteração.
+// Ele já usa user_ids (que são os Supabase user.id),
+// e o OneSignal usa esses mesmos IDs como external_id via OneSignal.login(userId).
+// A função enviarPush chama /api/push que agora usa a API do OneSignal.
+
 import { createClient } from '@/lib/supabase/client'
 
 const supabase = createClient()

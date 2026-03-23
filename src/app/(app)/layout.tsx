@@ -7,14 +7,13 @@ import { Home, MessageCircle, Bell, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import PWAInstallBanner from '@/components/PWAInstallBanner'
-import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { initOneSignal } from '@/lib/onesignal'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { fetchProfile } = useAuthStore()
   const supabase = createClient()
-  usePushNotifications()
 
   const [temNotificacao, setTemNotificacao] = useState(false)
   const [temMensagem, setTemMensagem] = useState(false)
@@ -41,6 +40,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setMyUserId(user.id)
+
+    // Inicializa OneSignal com o user_id do Supabase como external_id
+    initOneSignal(user.id).catch(err => console.error('OneSignal init error:', err))
 
     // Verifica notificações não lidas existentes
     const { count: notifCount } = await supabase
@@ -81,7 +83,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'chat_messages',
       }, (payload: any) => {
-        // Só ativa badge se não estiver na página do chat
         if (payload.new.sender_id !== user.id) {
           setTemMensagem(true)
         }

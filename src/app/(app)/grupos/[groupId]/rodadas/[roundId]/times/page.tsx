@@ -286,36 +286,38 @@ export default function TimesPage() {
                 display: 'flex', alignItems: 'center', gap: '0.75rem',
                 padding: '0.625rem 1rem', borderBottom: '1px solid rgba(0,0,0,0.04)',
               }}>
-                {/* Avatar */}
-                <div style={{
-                  width: '2.5rem', height: '2.5rem', borderRadius: '9999px', flexShrink: 0,
-                  backgroundColor: '#f1f5f9', border: '2px solid #e2e8f0',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                }}>
-                  {j.photo_url
-                    ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
-                        {j.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
-                      </span>}
-                </div>
-                {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {j.full_name}
+                {/* Avatar + nome embaixo */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0, width: '3rem' }}>
+                  <div style={{
+                    width: '2.25rem', height: '2.25rem', borderRadius: '9999px',
+                    backgroundColor: '#f1f5f9', border: '2px solid #e2e8f0',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                  }}>
+                    {j.photo_url
+                      ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>
+                          {j.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                        </span>}
+                  </div>
+                  <p style={{
+                    fontSize: '0.6rem', fontWeight: 600, color: '#475569',
+                    margin: 0, textAlign: 'center',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    width: '3rem',
+                  }}>
+                    {j.full_name.split(' ')[0]}
                   </p>
-                  <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '1px 0 0' }}>
-                    {j.is_guest ? '🎟️ convidado' : j.position_1 ? `${posicaoIcon[j.position_1] ?? ''} ${j.position_1}` : '—'}
-                  </p>
                 </div>
-                {/* Botões de destino */}
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+
+                {/* Botões de destino — ocupam o restante */}
+                <div style={{ flex: 1, display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                   {times.map((t, idx) => (
                     <button key={idx} onClick={() => moverJogador(j, idx)}
                       style={{
-                        padding: '4px 10px', borderRadius: '9999px', border: 'none',
+                        padding: '5px 10px', borderRadius: '9999px', border: 'none',
                         backgroundColor: t.color, color: 'white',
                         fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
-                        whiteSpace: 'nowrap',
+                        whiteSpace: 'nowrap', flexShrink: 0,
                       }}>
                       → {t.name.split(' ').pop()}
                     </button>

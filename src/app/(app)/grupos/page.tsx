@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, LogIn, Users, MapPin, ChevronRight, Trophy, Calendar } from 'lucide-react'
+import { Plus, LogIn, MapPin, ChevronRight, Trophy, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import type { GroupWithMeta } from '@/lib/types'
@@ -20,9 +20,55 @@ export default function GruposPage() {
   const [modalEntrar, setModalEntrar] = useState(false)
   const [proximaRodada, setProximaRodada] = useState<{ id: string; groupId: string; groupName: string; title: string; date: string; time: string; status: string } | null>(null)
 
+  // PWA Install
+  const [promptEvento, setPromptEvento] = useState<any>(null)
+  const [mostrarBotaoInstalar, setMostrarBotaoInstalar] = useState(false)
+  const [mostrarInstrucoes, setMostrarInstrucoes] = useState(false)
+  const [isAndroid, setIsAndroid] = useState(false)
+
   useEffect(() => {
     fetchGrupos()
+
+    // Já instalado — não mostra nada
+    if (window.matchMedia('(display-mode: standalone)').matches) return
+    if ((window.navigator as any).standalone === true) return
+    if (localStorage.getItem('pwa-dispensado')) return
+
+    const android = /android/i.test(navigator.userAgent)
+    setIsAndroid(android)
+
+    // Captura evento nativo do Chrome
+    const handler = (e: any) => {
+      e.preventDefault()
+      setPromptEvento(e)
+      setMostrarBotaoInstalar(true)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+
+    // Fallback: mostra botão mesmo sem o evento (Android que ignorou antes)
+    if (android) {
+      setTimeout(() => {
+        setMostrarBotaoInstalar(true)
+      }, 2000)
+    }
+
+    return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
+
+  async function handleInstalar() {
+    if (promptEvento) {
+      // Tem o evento nativo — dispara o prompt do Chrome
+      promptEvento.prompt()
+      const { outcome } = await promptEvento.userChoice
+      if (outcome === 'accepted') {
+        localStorage.setItem('pwa-dispensado', 'true')
+        setMostrarBotaoInstalar(false)
+      }
+    } else {
+      // Sem evento nativo — mostra instruções manuais
+      setMostrarInstrucoes(true)
+    }
+  }
 
   async function fetchGrupos() {
     setLoading(true)
@@ -41,10 +87,7 @@ export default function GruposPage() {
       .eq('user_id', user.id)
       .eq('is_active', true)
 
-    if (error || !data) {
-      setLoading(false)
-      return
-    }
+    if (error || !data) { setLoading(false); return }
 
     const gruposFormatados: GroupWithMeta[] = data
       .filter((item: any) => item.groups)
@@ -56,7 +99,6 @@ export default function GruposPage() {
 
     setGrupos(gruposFormatados)
 
-    // Busca a próxima rodada mais próxima entre todos os grupos
     const groupIds = gruposFormatados.map((g: any) => g.id)
     if (groupIds.length > 0) {
       const { data: rodadas } = await supabase
@@ -151,7 +193,6 @@ export default function GruposPage() {
       {/* Lista de grupos */}
       <div className="max-w-lg mx-auto px-4 mt-6 space-y-3 pb-6">
         {loading ? (
-          // Skeleton loading
           [1, 2, 3].map(i => (
             <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 animate-pulse">
               <div className="flex items-center gap-3">
@@ -164,7 +205,6 @@ export default function GruposPage() {
             </div>
           ))
         ) : grupos.length === 0 ? (
-          // Empty state
           <div className="text-center py-16">
             <div className="text-6xl mb-4">⚽</div>
             <h3 className="text-gray-700 font-semibold text-lg mb-2">Nenhum baba ainda</h3>
@@ -180,7 +220,6 @@ export default function GruposPage() {
               className="w-full bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition-all active:scale-[0.99] text-left"
             >
               <div className="flex items-center gap-3">
-                {/* Ícone/foto do grupo */}
                 <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {grupo.photo_url ? (
                     <img src={grupo.photo_url} alt={grupo.name} className="w-full h-full object-cover" />
@@ -188,8 +227,6 @@ export default function GruposPage() {
                     <span className="text-2xl">⚽</span>
                   )}
                 </div>
-
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-gray-800 truncate">{grupo.name}</h3>
@@ -199,7 +236,6 @@ export default function GruposPage() {
                       </span>
                     )}
                   </div>
-
                   <div className="flex items-center gap-3 mt-1">
                     {grupo.city && (
                       <span className="flex items-center gap-1 text-xs text-gray-400">
@@ -217,7 +253,6 @@ export default function GruposPage() {
                     )}
                   </div>
                 </div>
-
                 <ChevronRight size={18} className="text-gray-300 flex-shrink-0" />
               </div>
             </button>
@@ -226,7 +261,7 @@ export default function GruposPage() {
       </div>
 
       {/* Botão convidar amigo */}
-      <div className="max-w-lg mx-auto px-4 pb-8">
+      <div className="max-w-lg mx-auto px-4 pb-3">
         <button
           onClick={() => {
             const url = window.location.origin + '/landing'
@@ -242,6 +277,59 @@ export default function GruposPage() {
           <span>🔗</span> Convidar amigo para conhecer o MeuBaba
         </button>
       </div>
+
+      {/* Botão instalar app */}
+      {mostrarBotaoInstalar && (
+        <div className="max-w-lg mx-auto px-4 pb-8">
+          <button
+            onClick={handleInstalar}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-all active:scale-95 shadow-sm"
+          >
+            <Download size={16} />
+            Instale o app no seu celular
+          </button>
+
+          {/* Instruções manuais (fallback quando não tem o evento nativo) */}
+          {mostrarInstrucoes && (
+            <div className="mt-3 bg-white rounded-2xl border border-green-100 p-4 shadow-sm">
+              <p className="text-gray-700 font-semibold text-sm mb-3">Como instalar:</p>
+              <div className="flex flex-col gap-2">
+                {isAndroid ? (
+                  <>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</span>
+                      <span className="text-sm text-gray-600">Toque no menu <strong>⋮</strong> (três pontos) no canto superior direito do Chrome</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</span>
+                      <span className="text-sm text-gray-600">Toque em <strong>"Adicionar à tela inicial"</strong></span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</span>
+                      <span className="text-sm text-gray-600">Confirme tocando em <strong>"Adicionar"</strong></span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</span>
+                      <span className="text-sm text-gray-600">Toque no botão <strong>Compartilhar</strong> (ícone de seta para cima) no Safari</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</span>
+                      <span className="text-sm text-gray-600">Role e toque em <strong>"Adicionar à Tela de Início"</strong></span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</span>
+                      <span className="text-sm text-gray-600">Toque em <strong>"Adicionar"</strong> no canto superior direito</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modais */}
       {modalCriar && (

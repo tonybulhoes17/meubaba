@@ -31,7 +31,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
   // Rotas públicas (não precisam de login)
-  const publicRoutes = ['/login', '/cadastro', '/auth/callback']
+  const publicRoutes = ['/login', '/cadastro', '/auth/callback', '/landing']
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
 
   // Redireciona para login se não autenticado e rota protegida
@@ -53,6 +53,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|OneSignalSDKWorker\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json|js|ico)$).*)',
   ],
 }

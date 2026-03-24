@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Clock, Users, Edit2, Flag, Search, UserPlus, Check, X } from 'lucide-react'
+import { ArrowLeft, Clock, Users, Edit2, Flag, Search, UserPlus, Check, X, Settings, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Round, Match, MemberRole } from '@/lib/types'
 import { formatDateShort, formatTime } from '@/lib/utils'
@@ -46,6 +46,13 @@ export default function RodadaPage() {
   const [activeTab, setActiveTab] = useState<Tab>('presenca')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+
+  // Modal configurações
+  const [modalConfig, setModalConfig] = useState(false)
+  const [editNome, setEditNome] = useState('')
+  const [editData, setEditData] = useState('')
+  const [editHorario, setEditHorario] = useState('')
+  const [savingConfig, setSavingConfig] = useState(false)
 
   // Polls
   const [polls, setPolls] = useState<any[]>([])
@@ -293,6 +300,26 @@ export default function RodadaPage() {
     fetchData()
   }
 
+  async function handleSalvarConfig() {
+    if (!editNome.trim()) return
+    setSavingConfig(true)
+    await supabase.from('rounds').update({
+      title: editNome.trim(),
+      scheduled_date: editData,
+      start_time: editHorario || null,
+    }).eq('id', roundId)
+    setSavingConfig(false)
+    setModalConfig(false)
+    fetchData()
+  }
+
+  async function handleExcluirRodada() {
+    if (!confirm('Tem certeza que deseja excluir esta rodada? Esta ação não pode ser desfeita.')) return
+    setSavingConfig(true)
+    await supabase.from('rounds').delete().eq('id', roundId)
+    router.push(`/grupos/${groupId}/rodadas`)
+  }
+
   async function handleEncerrarRodada() {
     if (!confirm('Encerrar a rodada? Isso abrirá as votações de Craque e Bola Murcha.')) return
     setSaving('encerrar')
@@ -419,7 +446,17 @@ export default function RodadaPage() {
             }`}>
               {isFinished ? '✅ Finalizada' : rodada.status === 'ongoing' ? '🟢 Em andamento' : isCancelled ? '❌ Cancelada' : '📅 Agendada'}
             </span>
-            <div className="w-6" />
+            {isAdmin && !isFinished
+              ? <button onClick={() => {
+                  setEditNome(rodada.title ?? '')
+                  setEditData(rodada.scheduled_date ?? '')
+                  setEditHorario(rodada.start_time?.slice(0,5) ?? '')
+                  setModalConfig(true)
+                }} className="text-white/70 hover:text-white transition-colors">
+                  <Settings size={20} />
+                </button>
+              : <div className="w-6" />
+            }
           </div>
 
           <h1 className="text-white text-xl font-bold">
@@ -1115,6 +1152,115 @@ export default function RodadaPage() {
           </>
         )}
       </div>
+      {/* ======================== MODAL CONFIGURAÇÕES ======================== */}
+      {modalConfig && (
+        <>
+          {/* Overlay */}
+          <div onClick={() => setModalConfig(false)}
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 50 }} />
+
+          {/* Modal */}
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 51,
+            backgroundColor: 'white', borderRadius: '1.5rem 1.5rem 0 0',
+            padding: '1.5rem', paddingBottom: '2.5rem',
+            boxShadow: '0 -4px 32px rgba(0,0,0,0.15)',
+          }}>
+            {/* Header modal */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>⚙️ Configurar Rodada</h2>
+              <button onClick={() => setModalConfig(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Nome */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '6px' }}>
+                  Nome da rodada
+                </label>
+                <input
+                  value={editNome}
+                  onChange={e => setEditNome(e.target.value)}
+                  placeholder="Ex: Rodada de quarta"
+                  style={{
+                    width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem',
+                    border: '2px solid #e2e8f0', fontSize: '0.9rem', outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={e => e.target.style.borderColor = '#16a34a'}
+                  onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+
+              {/* Data */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '6px' }}>
+                  Data
+                </label>
+                <input
+                  type="date"
+                  value={editData}
+                  onChange={e => setEditData(e.target.value)}
+                  style={{
+                    width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem',
+                    border: '2px solid #e2e8f0', fontSize: '0.9rem', outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={e => e.target.style.borderColor = '#16a34a'}
+                  onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+
+              {/* Horário */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '6px' }}>
+                  Horário
+                </label>
+                <input
+                  type="time"
+                  value={editHorario}
+                  onChange={e => setEditHorario(e.target.value)}
+                  style={{
+                    width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem',
+                    border: '2px solid #e2e8f0', fontSize: '0.9rem', outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={e => e.target.style.borderColor = '#16a34a'}
+                  onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                />
+              </div>
+
+              {/* Botão salvar */}
+              <button onClick={handleSalvarConfig} disabled={savingConfig || !editNome.trim()}
+                style={{
+                  width: '100%', padding: '0.875rem', borderRadius: '0.875rem', border: 'none',
+                  background: savingConfig || !editNome.trim() ? '#e2e8f0' : 'linear-gradient(135deg, #16a34a, #15803d)',
+                  color: savingConfig || !editNome.trim() ? '#94a3b8' : 'white',
+                  fontWeight: 700, fontSize: '0.95rem', cursor: savingConfig || !editNome.trim() ? 'not-allowed' : 'pointer',
+                }}>
+                {savingConfig ? 'Salvando...' : '💾 Salvar alterações'}
+              </button>
+
+              {/* Divisor */}
+              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.75rem' }}>
+                <button onClick={handleExcluirRodada} disabled={savingConfig}
+                  style={{
+                    width: '100%', padding: '0.875rem', borderRadius: '0.875rem', border: '2px solid #fee2e2',
+                    backgroundColor: '#fff5f5', color: '#dc2626',
+                    fontWeight: 700, fontSize: '0.95rem', cursor: savingConfig ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  }}>
+                  <Trash2 size={16} />
+                  Excluir rodada
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

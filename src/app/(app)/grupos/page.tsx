@@ -279,12 +279,14 @@ export default function GruposPage() {
       </div>
 
       {/* Botão manual de uso */}
-      <div className="max-w-lg mx-auto px-4 pb-8">
+      <div className="max-w-lg mx-auto px-4 pb-3">
         <button
           onClick={() => router.push('/manual')}
           className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl border-2 border-dashed border-blue-200 text-blue-500 font-semibold text-sm hover:bg-blue-50 transition-all"
         >
           <span>📖</span> Aprender a usar o MeuBaba
+        </button>
+      </div>
 
       {/* Botão instalar app */}
       {mostrarBotaoInstalar && (

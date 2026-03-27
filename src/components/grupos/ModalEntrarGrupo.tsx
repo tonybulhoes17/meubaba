@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -15,6 +15,22 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [codigo, setCodigo] = useState('')
   const [grupoEncontrado, setGrupoEncontrado] = useState<{ id: string; name: string; city: string | null } | null>(null)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Detecta teclado virtual via visualViewport
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+
+    function handleResize() {
+      const kbHeight = window.innerHeight - (viewport?.height ?? window.innerHeight)
+      setKeyboardHeight(kbHeight > 0 ? kbHeight : 0)
+    }
+
+    viewport.addEventListener('resize', handleResize)
+    return () => viewport.removeEventListener('resize', handleResize)
+  }, [])
 
   async function handleBuscar(e: React.FormEvent) {
     e.preventDefault()
@@ -77,21 +93,20 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
   }
 
   return (
-    // overflow-y-auto + max-h para o modal rolar quando o teclado empurra
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-      <div
-        className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl"
-        style={{ maxHeight: '90vh', overflowY: 'auto' }}
-      >
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+      style={{ paddingBottom: keyboardHeight }}
+    >
+      <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-800">Entrar em um Baba</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={22} />
           </button>
         </div>
 
-        <div className="p-5 space-y-4 pb-8">
+        <div className="p-5 space-y-4">
           <p className="text-sm text-gray-500">
             Peça o código de convite para o administrador do baba.
           </p>
@@ -102,6 +117,7 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
                 Código de convite
               </label>
               <input
+                ref={inputRef}
                 type="text"
                 value={codigo}
                 onChange={e => setCodigo(e.target.value.toUpperCase())}
@@ -113,7 +129,6 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
               />
             </div>
 
-            {/* Botão buscar DENTRO do form — sempre visível */}
             {!grupoEncontrado && (
               <button
                 type="submit"
@@ -126,7 +141,6 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
             )}
           </form>
 
-          {/* Grupo encontrado */}
           {grupoEncontrado && (
             <div className="bg-green-50 border border-green-200 rounded-xl p-4">
               <p className="text-xs text-green-600 font-medium mb-1">Baba encontrado!</p>
@@ -142,7 +156,7 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
           )}
 
           {grupoEncontrado && (
-            <div className="flex gap-3">
+            <div className="flex gap-3 pb-2">
               <button
                 onClick={() => setGrupoEncontrado(null)}
                 className="flex-1 border border-gray-200 text-gray-600 font-semibold py-3 rounded-xl hover:bg-gray-50 transition-all"

@@ -35,7 +35,6 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
       return
     }
 
-    // Verifica se já é membro
     const { data: { user } } = await supabase.auth.getUser()
     const { data: jaEMembro } = await supabase
       .from('group_members')
@@ -78,17 +77,21 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-xl">
+    // overflow-y-auto + max-h para o modal rolar quando o teclado empurra
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+      <div
+        className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl"
+        style={{ maxHeight: '90vh', overflowY: 'auto' }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl">
           <h2 className="text-lg font-bold text-gray-800">Entrar em um Baba</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={22} />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 pb-8">
           <p className="text-sm text-gray-500">
             Peça o código de convite para o administrador do baba.
           </p>
@@ -104,10 +107,13 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
                 onChange={e => setCodigo(e.target.value.toUpperCase())}
                 placeholder="Ex: AB12CD34"
                 maxLength={8}
+                autoComplete="off"
+                autoCapitalize="characters"
                 className="input-baba text-center text-xl font-bold tracking-widest uppercase"
               />
             </div>
 
+            {/* Botão buscar DENTRO do form — sempre visível */}
             {!grupoEncontrado && (
               <button
                 type="submit"

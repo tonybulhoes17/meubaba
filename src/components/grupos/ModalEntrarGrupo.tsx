@@ -93,11 +93,8 @@ export default function ModalEntrarGrupo({ onClose, onSuccess }: Props) {
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
-      style={{ paddingBottom: keyboardHeight }}
-    >
-      <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-800">Entrar em um Baba</h2>

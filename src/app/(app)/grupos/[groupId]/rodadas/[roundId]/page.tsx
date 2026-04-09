@@ -1269,13 +1269,35 @@ export default function RodadaPage() {
 function TimesDisplay({ roundId }: { roundId: string }) {
   const supabase = createClient()
   const [times, setTimes] = useState<any[]>([])
+  // mapa: user_id -> nome de quem saiu (substituição)
+  const [subMap, setSubMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    supabase
-      .from('teams')
-      .select('*, team_players(*, profile:profiles(full_name))')
-      .eq('round_id', roundId)
-      .then(({ data }) => setTimes(data ?? []))
+    async function load() {
+      const { data: timesData } = await supabase
+        .from('teams')
+        .select('*, team_players(*, profile:profiles(full_name))')
+        .eq('round_id', roundId)
+      setTimes(timesData ?? [])
+
+      // Busca eventos de substituição da rodada para mostrar "entrou no lugar de X"
+      const { data: subs } = await supabase
+        .from('match_events')
+        .select('user_id, attendance_id, sub_out_name, is_guest, guest_name')
+        .eq('round_id', roundId)
+        .eq('event_type', 'substitution')
+
+      const map: Record<string, string> = {}
+      for (const s of subs ?? []) {
+        if (s.sub_out_name) {
+          // chave: user_id ou attendance_id para convidados
+          const key = s.is_guest ? s.attendance_id : s.user_id
+          if (key) map[key] = s.sub_out_name
+        }
+      }
+      setSubMap(map)
+    }
+    load()
   }, [roundId])
 
   return (
@@ -1287,18 +1309,30 @@ function TimesDisplay({ roundId }: { roundId: string }) {
             <p className="font-bold text-gray-800">{time.name}</p>
             <span className="text-xs text-gray-400">({time.team_players?.length ?? 0} jogadores)</span>
           </div>
-          {(time.team_players ?? []).map((tp: any) => (
-            <div key={tp.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                style={{ backgroundColor: time.color ?? '#16a34a' }}>
-                {(tp.profile?.full_name ?? tp.guest_name ?? '?')[0]}
+          {(time.team_players ?? []).map((tp: any) => {
+            const nome = tp.profile?.full_name ?? tp.guest_name ?? 'Jogador'
+            const chave = tp.is_guest ? tp.attendance_id : tp.user_id
+            const subOutName = subMap[chave]
+            return (
+              <div key={tp.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                  style={{ backgroundColor: subOutName ? '#7c3aed' : (time.color ?? '#16a34a') }}>
+                  {subOutName ? '🔄' : nome[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-700">
+                    {nome}
+                    {tp.is_guest && <span className="ml-1 text-xs text-blue-400">(convidado)</span>}
+                  </p>
+                  {subOutName && (
+                    <p className="text-xs text-purple-500 font-medium">
+                      🔄 entrou no lugar de {subOutName.split(' ')[0]}
+                    </p>
+                  )}
+                </div>
               </div>
-              <p className="text-sm text-gray-700">
-                {tp.profile?.full_name ?? tp.guest_name ?? 'Jogador'}
-                {tp.is_guest && <span className="ml-1 text-xs text-blue-400">(convidado)</span>}
-              </p>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ))}
     </>

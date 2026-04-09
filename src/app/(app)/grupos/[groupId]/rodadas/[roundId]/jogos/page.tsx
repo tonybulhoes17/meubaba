@@ -20,7 +20,8 @@ interface Jogador {
 
 interface Evento {
   id?: string
-  event_type: 'goal' | 'assist' | 'yellow_card' | 'red_card'
+  event_type: 'goal' | 'assist' | 'yellow_card' | 'red_card' | 'substitution'
+  sub_out_name?: string  // nome do jogador que saiu (só para substituição)
   user_id: string | null
   attendance_id: string
   team_id: string
@@ -48,6 +49,7 @@ const EVENT_LABELS: Record<string, { icon: string; label: string; color: string;
   assist:      { icon: '🅰️', label: 'Assistência',  color: '#2563eb', bg: '#dbeafe' },
   yellow_card: { icon: '🟨', label: 'Amarelo',      color: '#ca8a04', bg: '#fef9c3' },
   red_card:    { icon: '🟥', label: 'Vermelho',     color: '#dc2626', bg: '#fee2e2' },
+  substitution: { icon: '🔄', label: 'Substituição', color: '#7c3aed', bg: '#ede9fe' },
 }
 
 export default function JogosPage() {
@@ -225,20 +227,58 @@ export default function JogosPage() {
     setModalSub(true)
   }
 
-  function confirmarSubstituicao(entra: Jogador) {
+  async function confirmarSubstituicao(entra: Jogador) {
     if (!subSaiJogador) return
-    const novos = [...jogos]
-    const jogo = novos[subJogoIdx]
 
-    // Atualiza team_id do jogador que entra na lista de jogadores
+    // 1. Atualiza team_players no banco: remove quem sai, insere quem entra
+    // Remove jogador que sai do time
+    if (subSaiJogador.user_id) {
+      await supabase.from('team_players')
+        .delete()
+        .eq('user_id', subSaiJogador.user_id)
+        .in('team_id', times.map(t => t.id))
+    } else {
+      await supabase.from('team_players')
+        .delete()
+        .eq('attendance_id', subSaiJogador.attendance_id)
+        .in('team_id', times.map(t => t.id))
+    }
+
+    // Busca o team_id do banco para confirmar
+    const { data: teamData } = await supabase
+      .from('teams').select('id').eq('round_id', roundId).eq('id', subTeamId).single()
+    const teamId = teamData?.id ?? subTeamId
+
+    // Insere jogador que entra no time
+    await supabase.from('team_players').insert({
+      team_id: teamId,
+      user_id: entra.user_id,
+      attendance_id: entra.is_guest ? entra.attendance_id : null,
+      is_guest: entra.is_guest,
+    })
+
+    // 2. Registra evento de substituição no jogo atual
+    const novos = [...jogos]
+    novos[subJogoIdx].eventos.push({
+      event_type: 'substitution',
+      user_id: entra.user_id,
+      attendance_id: entra.attendance_id,
+      team_id: subTeamId,
+      is_guest: entra.is_guest,
+      guest_name: entra.is_guest ? entra.full_name : null,
+      player_name: entra.full_name,
+      player_initials: entra.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join(''),
+      sub_out_name: subSaiJogador.full_name,
+    })
+    setJogos(novos)
+
+    // 3. Atualiza estado local dos jogadores
     const novosJogs = jogadores.map(j =>
       j.key === entra.key ? { ...j, team_id: subTeamId } :
       j.key === subSaiJogador.key ? { ...j, team_id: '' } : j
     )
     setJogadores(novosJogs)
 
-    // Registra evento de substituição nos eventos do jogo (como info visual)
-    // O jogador que entra pode agora marcar gols/eventos pelo time
     setModalSub(false)
     setSubSaiJogador(null)
   }
@@ -275,6 +315,7 @@ export default function JogosPage() {
             event_type: ev.event_type,
             is_guest: ev.is_guest,
             guest_name: ev.guest_name,
+            sub_out_name: ev.sub_out_name ?? null,
           }))
         )
         if (evErr) {
@@ -424,8 +465,21 @@ export default function JogosPage() {
                                 <span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'white' }}>{e.player_initials}</span>
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.player_name}</p>
-                                <p style={{ fontSize: '0.62rem', color: cfg.color, margin: 0, fontWeight: 600 }}>{cfg.label} · {time?.name}</p>
+                                {e.event_type === 'substitution' ? (
+                                  <>
+                                    <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1e293b', margin: 0 }}>
+                                      <span style={{ color: '#16a34a' }}>▲ {e.player_name.split(' ')[0]}</span>
+                                      <span style={{ color: '#94a3b8', margin: '0 4px' }}>↔</span>
+                                      <span style={{ color: '#dc2626' }}>▼ {(e.sub_out_name ?? '').split(' ')[0]}</span>
+                                    </p>
+                                    <p style={{ fontSize: '0.62rem', color: cfg.color, margin: 0, fontWeight: 600 }}>Substituição · {time?.name}</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.player_name}</p>
+                                    <p style={{ fontSize: '0.62rem', color: cfg.color, margin: 0, fontWeight: 600 }}>{cfg.label} · {time?.name}</p>
+                                  </>
+                                )}
                               </div>
                               <button onClick={() => removerEvento(idx, evIdx)}
                                 style={{ width: '20px', height: '20px', borderRadius: '9999px', backgroundColor: 'rgba(0,0,0,0.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

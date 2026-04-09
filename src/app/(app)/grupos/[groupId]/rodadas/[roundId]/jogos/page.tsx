@@ -66,6 +66,13 @@ export default function JogosPage() {
   const [tipoEvento, setTipoEvento] = useState<'goal' | 'assist' | 'yellow_card' | 'red_card'>('goal')
   const [teamFiltro, setTeamFiltro] = useState<string>('')
 
+  // Modal substituição
+  const [modalSub, setModalSub] = useState(false)
+  const [subJogoIdx, setSubJogoIdx] = useState(0)
+  const [subTeamId, setSubTeamId] = useState('')
+  const [subSaiJogador, setSubSaiJogador] = useState<Jogador | null>(null)
+  const [arrivalOrder, setArrivalOrder] = useState<Record<string, number>>({})
+
   useEffect(() => { fetchData() }, [roundId])
 
   async function fetchData() {
@@ -75,7 +82,7 @@ export default function JogosPage() {
 
     const { data: atts } = await supabase
       .from('round_attendance')
-      .select('id, user_id, guest_name, is_guest, profile:profiles(full_name, photo_url, position_1)')
+      .select('id, user_id, guest_name, is_guest, arrival_order, profile:profiles(full_name, photo_url, position_1)')
       .eq('round_id', roundId)
       .eq('checked_in', true)
 
@@ -100,6 +107,14 @@ export default function JogosPage() {
       }
     })
     setJogadores(jogs)
+
+    // Mapeia arrival_order para uso na substituição
+    const orderMap: Record<string, number> = {}
+    for (const a of atts ?? []) {
+      const key = a.is_guest ? `guest_${a.id}` : a.user_id
+      orderMap[key] = a.arrival_order ?? 9999
+    }
+    setArrivalOrder(orderMap)
 
     const { data: matchesData } = await supabase
       .from('matches')
@@ -201,6 +216,31 @@ export default function JogosPage() {
     const novos = [...jogos]
     novos[jogoIdx].eventos.splice(evIdx, 1)
     setJogos(novos)
+  }
+
+  function abrirModalSub(jogoIdx: number, teamId: string) {
+    setSubJogoIdx(jogoIdx)
+    setSubTeamId(teamId)
+    setSubSaiJogador(null)
+    setModalSub(true)
+  }
+
+  function confirmarSubstituicao(entra: Jogador) {
+    if (!subSaiJogador) return
+    const novos = [...jogos]
+    const jogo = novos[subJogoIdx]
+
+    // Atualiza team_id do jogador que entra na lista de jogadores
+    const novosJogs = jogadores.map(j =>
+      j.key === entra.key ? { ...j, team_id: subTeamId } :
+      j.key === subSaiJogador.key ? { ...j, team_id: '' } : j
+    )
+    setJogadores(novosJogs)
+
+    // Registra evento de substituição nos eventos do jogo (como info visual)
+    // O jogador que entra pode agora marcar gols/eventos pelo time
+    setModalSub(false)
+    setSubSaiJogador(null)
   }
 
   async function salvarTudo() {
@@ -358,6 +398,20 @@ export default function JogosPage() {
                       })}
                     </div>
 
+                    {/* Botões de substituição por time */}
+                    <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.875rem' }}>
+                      {[jogo.home_team_id, jogo.away_team_id].map(tid => {
+                        const t = times.find(t => t.id === tid)
+                        return (
+                          <button key={tid} onClick={() => abrirModalSub(idx, tid)}
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '7px', borderRadius: '0.75rem', border: `1px solid ${t?.color ?? '#e2e8f0'}33`, backgroundColor: (t?.color ?? '#94a3b8') + '12', cursor: 'pointer' }}>
+                            <span style={{ fontSize: '0.9rem' }}>🔄</span>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: t?.color ?? '#64748b' }}>Sub {t?.name?.split(' ').pop()}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+
                     {ev.length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {ev.map((e, evIdx) => {
@@ -485,6 +539,164 @@ export default function JogosPage() {
           </div>
         </div>
       )}
+
+      {/* ======= MODAL SUBSTITUIÇÃO ======= */}
+      {modalSub && (() => {
+        const jogo = jogos[subJogoIdx]
+        const timePartida = [jogo.home_team_id, jogo.away_team_id]
+        const teamSub = times.find(t => t.id === subTeamId)
+
+        // Jogadores do time que vai sofrer a substituição
+        const jogadoresDoTimeSub = jogadores.filter(j => j.team_id === subTeamId)
+
+        // Lista de substitutos possíveis:
+        // 1. Sem time nenhum (priority 1)
+        // 2. Em time que NÃO está nessa partida (priority 2)
+        // Excluídos: jogadores dos dois times da partida
+        const substitutos = jogadores
+          .filter(j => !timePartida.includes(j.team_id))
+          .sort((a, b) => {
+            const prioA = a.team_id === '' ? 0 : 1
+            const prioB = b.team_id === '' ? 0 : 1
+            if (prioA !== prioB) return prioA - prioB
+            return (arrivalOrder[a.key] ?? 9999) - (arrivalOrder[b.key] ?? 9999)
+          })
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 100, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}
+            onClick={() => { setModalSub(false); setSubSaiJogador(null) }}>
+            <div style={{ width: '100%', maxWidth: '640px', margin: '0 auto', backgroundColor: 'white', borderRadius: '1.25rem 1.25rem 0 0', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: '1rem', color: '#1e293b', margin: 0 }}>
+                    🔄 Substituição — {teamSub?.name}
+                  </p>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '2px 0 0' }}>
+                    {!subSaiJogador ? 'Quem vai SAIR?' : 'Quem vai ENTRAR?'}
+                  </p>
+                </div>
+                <button onClick={() => { setModalSub(false); setSubSaiJogador(null) }}
+                  style={{ width: '32px', height: '32px', borderRadius: '9999px', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <X size={16} color="#64748b" />
+                </button>
+              </div>
+
+              {/* Steps indicator */}
+              <div style={{ display: 'flex', gap: '0.5rem', padding: '0.75rem 1.25rem', backgroundColor: '#f8fafc', flexShrink: 0 }}>
+                <div style={{ flex: 1, padding: '6px 8px', borderRadius: '0.5rem', backgroundColor: !subSaiJogador ? '#dc262618' : '#dcfce7', border: `1px solid ${!subSaiJogador ? '#dc2626' : '#16a34a'}44`, textAlign: 'center' }}>
+                  <p style={{ fontSize: '0.65rem', fontWeight: 700, color: !subSaiJogador ? '#dc2626' : '#16a34a', margin: 0 }}>
+                    {subSaiJogador ? `✅ ${subSaiJogador.full_name.split(' ')[0]} sai` : '1. Quem sai?'}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', color: '#cbd5e1', fontSize: '0.8rem' }}>→</div>
+                <div style={{ flex: 1, padding: '6px 8px', borderRadius: '0.5rem', backgroundColor: subSaiJogador ? '#eff6ff' : '#f1f5f9', border: `1px solid ${subSaiJogador ? '#2563eb' : '#e2e8f0'}`, textAlign: 'center' }}>
+                  <p style={{ fontSize: '0.65rem', fontWeight: 700, color: subSaiJogador ? '#2563eb' : '#94a3b8', margin: 0 }}>
+                    2. Quem entra?
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ overflowY: 'auto', flex: 1, padding: '0.75rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+
+                {/* PASSO 1: escolhe quem sai */}
+                {!subSaiJogador && (
+                  <>
+                    {jogadoresDoTimeSub.length === 0 && (
+                      <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem', fontSize: '0.875rem' }}>Nenhum jogador neste time</p>
+                    )}
+                    {jogadoresDoTimeSub.map(j => {
+                      const initials = j.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
+                      return (
+                        <button key={j.key} onClick={() => setSubSaiJogador(j)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '0.875rem', border: '1px solid #fee2e2', backgroundColor: '#fff5f5', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                          <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '9999px', backgroundColor: (teamSub?.color ?? '#94a3b8') + '22', border: `2px solid ${teamSub?.color ?? '#e2e8f0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                            {j.photo_url
+                              ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: teamSub?.color ?? '#64748b' }}>{initials}</span>}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', margin: 0 }}>{j.full_name}</p>
+                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0 }}>{j.is_guest ? '🎟️ convidado' : j.position_1 ?? '—'}</p>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 700 }}>SAI ↑</span>
+                        </button>
+                      )
+                    })}
+                  </>
+                )}
+
+                {/* PASSO 2: escolhe quem entra */}
+                {subSaiJogador && (
+                  <>
+                    {/* Seção: sem time */}
+                    {substitutos.filter(j => j.team_id === '').length > 0 && (
+                      <p style={{ fontSize: '0.65rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', margin: '4px 0 2px', letterSpacing: '0.05em' }}>
+                        ⏳ Aguardando — sem time
+                      </p>
+                    )}
+                    {substitutos.filter(j => j.team_id === '').map(j => {
+                      const initials = j.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
+                      const ordem = arrivalOrder[j.key]
+                      return (
+                        <button key={j.key} onClick={() => confirmarSubstituicao(j)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '0.875rem', border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                          <div style={{ width: '2rem', height: '2rem', borderRadius: '9999px', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid #86efac' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#16a34a' }}>{ordem && ordem < 9999 ? `${ordem}º` : initials}</span>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', margin: 0 }}>{j.full_name}</p>
+                            <p style={{ fontSize: '0.7rem', color: '#16a34a', margin: 0, fontWeight: 600 }}>Sem time · {ordem && ordem < 9999 ? `${ordem}º a chegar` : 'chegada não registrada'}</p>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#16a34a', fontWeight: 700 }}>ENTRA ↓</span>
+                        </button>
+                      )
+                    })}
+
+                    {/* Seção: em outro time */}
+                    {substitutos.filter(j => j.team_id !== '').length > 0 && (
+                      <p style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', margin: '8px 0 2px', letterSpacing: '0.05em' }}>
+                        👕 Em outro time
+                      </p>
+                    )}
+                    {substitutos.filter(j => j.team_id !== '').map(j => {
+                      const initials = j.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
+                      const outroTime = times.find(t => t.id === j.team_id)
+                      const ordem = arrivalOrder[j.key]
+                      return (
+                        <button key={j.key} onClick={() => confirmarSubstituicao(j)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '0.875rem', border: '1px solid #bfdbfe', backgroundColor: '#eff6ff', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                          <div style={{ width: '2rem', height: '2rem', borderRadius: '9999px', backgroundColor: (outroTime?.color ?? '#94a3b8') + '33', border: `2px solid ${outroTime?.color ?? '#e2e8f0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                            {j.photo_url
+                              ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.65rem', fontWeight: 700, color: outroTime?.color ?? '#64748b' }}>{initials}</span>}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', margin: 0 }}>{j.full_name}</p>
+                            <p style={{ fontSize: '0.7rem', color: '#2563eb', margin: 0 }}>
+                              {outroTime?.name} · {ordem && ordem < 9999 ? `${ordem}º a chegar` : ''}
+                            </p>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#2563eb', fontWeight: 700 }}>ENTRA ↓</span>
+                        </button>
+                      )
+                    })}
+
+                    {substitutos.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                        <p style={{ fontSize: '2rem', margin: '0 0 0.5rem' }}>🤷</p>
+                        <p style={{ fontSize: '0.875rem' }}>Nenhum substituto disponível</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

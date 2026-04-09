@@ -991,9 +991,9 @@ export default function RodadaPage() {
                         <p className="text-sm font-bold text-gray-800 truncate">{(jogo as any).away_team?.name}</p>
                       </div>
                     </div>
-                    {eventos.length > 0 && (
+                    {eventos.filter((ev: any) => ev.event_type !== 'substitution').length > 0 && (
                       <div style={{ borderTop: '1px solid #f1f5f9', padding: '0.5rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {eventos.map((ev: any, i: number) => {
+                        {eventos.filter((ev: any) => ev.event_type !== 'substitution').map((ev: any, i: number) => {
                           const nome = ev.is_guest ? ev.guest_name : (ev.profile?.full_name ?? 'Jogador')
                           const initials = (nome ?? 'J').split(' ').map((n: string) => n[0]).slice(0, 2).join('')
                           const teamColor = ev.team_id === (jogo as any).home_team_id ? (jogo as any).home_team?.color : (jogo as any).away_team?.color
@@ -1004,7 +1004,7 @@ export default function RodadaPage() {
                                 <span style={{ fontSize: '0.5rem', fontWeight: 700, color: 'white' }}>{initials}</span>
                               </div>
                               <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
-                              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: EVENT_TEXT[ev.event_type] }}>{ev.event_type === 'goal' ? 'Gol' : ev.event_type === 'assist' ? 'Assist.' : ev.event_type === 'yellow_card' ? 'Amarelo' : 'Vermelho'}</span>
+                              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: EVENT_TEXT[ev.event_type] }}>{ev.event_type === 'goal' ? 'Gol' : ev.event_type === 'assist' ? 'Assist.' : ev.event_type === 'yellow_card' ? 'Amarelo' : ev.event_type === 'red_card' ? 'Vermelho' : ''}</span>
                             </div>
                           )
                         })}

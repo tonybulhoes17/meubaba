@@ -1015,13 +1015,29 @@ export default function RodadaPage() {
               })
             )}
 
-            {/* Botão gerar cards — rodada finalizada */}
-            {isFinished && jogos.length > 0 && (
-              <button onClick={() => router.push(`/grupos/${groupId}/rodadas/${roundId}/cards`)}
-                style={{ width: '100%', background: 'linear-gradient(135deg, #1e293b, #334155)', border: 'none', borderRadius: '1rem', padding: '0.875rem', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                🃏 Gerar Cards para Compartilhar
-              </button>
-            )}
+            {/* Botão gerar cards — só após todas as enquetes encerradas */}
+            {(() => {
+              const enquetesAbertas = polls
+                .filter((p: any) => p.type === 'craque' || p.type === 'bola_murcha')
+                .some((p: any) => formatCronometro(p.closes_at) !== null && !p.is_closed)
+
+              if (!isFinished || jogos.length === 0) return null
+
+              if (enquetesAbertas) {
+                return (
+                  <div style={{ width: '100%', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '1rem', padding: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>🃏 Cards disponíveis após encerramento das enquetes</span>
+                  </div>
+                )
+              }
+
+              return (
+                <button onClick={() => router.push(`/grupos/${groupId}/rodadas/${roundId}/cards`)}
+                  style={{ width: '100%', background: 'linear-gradient(135deg, #1e293b, #334155)', border: 'none', borderRadius: '1rem', padding: '0.875rem', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                  🃏 Gerar Cards para Compartilhar
+                </button>
+              )
+            })()}
           </>
         )}
         {activeTab === 'stats' && (() => {

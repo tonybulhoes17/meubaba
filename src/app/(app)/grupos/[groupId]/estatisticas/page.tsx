@@ -131,12 +131,19 @@ export default function EstatisticasPage() {
 
     if (finalizadas.length > 0) {
       const ultimaRodada = finalizadas[0]
+      // Busca só enquetes JÁ ENCERRADAS — evita mostrar resultado parcial
+      const agora = new Date().toISOString()
       const { data: polls } = await supabase
-        .from('polls').select('id, type')
+        .from('polls').select('id, type, is_closed, closes_at')
         .eq('round_id', ultimaRodada.id)
         .in('type', ['craque', 'bola_murcha'])
 
-      for (const poll of polls ?? []) {
+      // Filtra só as encerradas (is_closed=true OU closes_at já passou)
+      const pollsEncerradas = (polls ?? []).filter((p: any) =>
+        p.is_closed === true || (p.closes_at && p.closes_at < agora)
+      )
+
+      for (const poll of pollsEncerradas) {
         const { data: opcoes } = await supabase
           .from('poll_options')
           .select('id, user_id, label, profile:profiles(full_name, photo_url)')

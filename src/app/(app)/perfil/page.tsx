@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { LogOut, Camera, Save, Loader2 } from 'lucide-react'
+import { LogOut, Camera, Save, Loader2, Eye, EyeOff, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import type { PlayerPosition } from '@/lib/types'
@@ -17,6 +17,15 @@ export default function PerfilPage() {
 
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Trocar senha
+  const [senhaAtual, setSenhaAtual] = useState('')
+  const [novaSenha, setNovaSenha] = useState('')
+  const [confirmaSenha, setConfirmaSenha] = useState('')
+  const [mostrarSenhas, setMostrarSenhas] = useState(false)
+  const [loadingSenha, setLoadingSenha] = useState(false)
+  const [erroSenha, setErroSenha] = useState<string | null>(null)
+  const [senhaOk, setSenhaOk] = useState(false)
   const [fullName, setFullName] = useState('')
   const [bio, setBio] = useState('')
   const [positions, setPositions] = useState<PlayerPosition[]>([])
@@ -61,6 +70,44 @@ export default function PerfilPage() {
     setLoading(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  async function handleTrocarSenha() {
+    setErroSenha(null)
+    if (novaSenha.length < 6) {
+      setErroSenha('A nova senha deve ter pelo menos 6 caracteres.')
+      return
+    }
+    if (novaSenha !== confirmaSenha) {
+      setErroSenha('As senhas não coincidem.')
+      return
+    }
+    setLoadingSenha(true)
+
+    // Verifica senha atual fazendo login
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: user?.email ?? '',
+      password: senhaAtual,
+    })
+    if (signInError) {
+      setErroSenha('Senha atual incorreta.')
+      setLoadingSenha(false)
+      return
+    }
+
+    const { error } = await supabase.auth.updateUser({ password: novaSenha })
+    setLoadingSenha(false)
+
+    if (error) {
+      setErroSenha('Erro ao atualizar senha. Tente novamente.')
+    } else {
+      setSenhaOk(true)
+      setSenhaAtual('')
+      setNovaSenha('')
+      setConfirmaSenha('')
+      setTimeout(() => setSenhaOk(false), 3000)
+    }
   }
 
   async function handleSairConta() {
@@ -188,8 +235,74 @@ export default function PerfilPage() {
           </button>
         </form>
 
+        {/* Trocar senha */}
+        <div className="mt-4 bg-white rounded-2xl p-5 border border-gray-100 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Lock size={16} className="text-gray-500" />
+              <h2 className="font-bold text-gray-800">Trocar senha</h2>
+            </div>
+            <button type="button" onClick={() => setMostrarSenhas(v => !v)}
+              className="text-xs text-green-600 font-semibold">
+              {mostrarSenhas ? 'Fechar' : 'Alterar'}
+            </button>
+          </div>
+
+          {mostrarSenhas && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Senha atual</label>
+                <input
+                  type="password"
+                  value={senhaAtual}
+                  onChange={e => setSenhaAtual(e.target.value)}
+                  placeholder="Digite sua senha atual"
+                  className="input-baba"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nova senha</label>
+                <input
+                  type="password"
+                  value={novaSenha}
+                  onChange={e => setNovaSenha(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  className="input-baba"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar nova senha</label>
+                <input
+                  type="password"
+                  value={confirmaSenha}
+                  onChange={e => setConfirmaSenha(e.target.value)}
+                  placeholder="Repita a nova senha"
+                  className="input-baba"
+                />
+              </div>
+
+              {erroSenha && (
+                <div className="bg-red-50 text-red-600 text-sm px-4 py-2 rounded-xl">{erroSenha}</div>
+              )}
+              {senhaOk && (
+                <div className="bg-green-50 text-green-600 text-sm px-4 py-2 rounded-xl font-semibold">✓ Senha atualizada com sucesso!</div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleTrocarSenha}
+                disabled={loadingSenha || !senhaAtual || !novaSenha || !confirmaSenha}
+                className="w-full bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                {loadingSenha ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />}
+                {loadingSenha ? 'Atualizando...' : 'Atualizar senha'}
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Sair da conta */}
-        <div className="mt-6 bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+        <div className="mt-4 bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
           <button
             onClick={handleSairConta}
             className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-600 font-semibold py-2 transition-colors"

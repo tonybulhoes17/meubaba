@@ -160,7 +160,7 @@ export default function GruposPage() {
             className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white font-semibold py-3 px-4 rounded-2xl shadow-sm hover:bg-green-700 transition-all active:scale-95"
           >
             <LogIn size={18} />
-            Entrar
+            Entrar com Codigo
           </button>
         </div>
       </div>

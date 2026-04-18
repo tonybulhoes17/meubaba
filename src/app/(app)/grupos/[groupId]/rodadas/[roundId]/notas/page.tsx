@@ -26,6 +26,7 @@ export default function NotasPage() {
   const [notas, setNotas] = useState<Record<string, number>>({}) // rated_id -> nota
   const [jaVotados, setJaVotados] = useState<Set<string>>(new Set()) // rated_ids já votados
   const [notasSalvas, setNotasSalvas] = useState(false)
+  const [votacaoEncerrada, setVotacaoEncerrada] = useState(false)
 
   useEffect(() => { fetchData() }, [roundId])
 
@@ -42,11 +43,11 @@ export default function NotasPage() {
     setSeasonId(round.season_id)
     setRodadaTitle(round.title ?? 'Rodada')
 
-    // Verifica se votação ainda está aberta (4h após encerramento)
+    // Verifica se votação ainda está aberta (2.5h após encerramento)
     if (round.finished_at) {
-      const fechaEm = new Date(round.finished_at).getTime() + 4 * 60 * 60 * 1000
+      const fechaEm = new Date(round.finished_at).getTime() + 2.5 * 60 * 60 * 1000
       if (Date.now() > fechaEm) {
-        // Votação encerrada — só leitura
+        setVotacaoEncerrada(true)
       }
     }
 
@@ -94,7 +95,7 @@ export default function NotasPage() {
 
   // Inicializa nota padrão 70 ao primeiro toque
   function handleNotaChange(userId: string, valor: number) {
-    if (jaVotados.has(userId)) return
+    if (jaVotados.has(userId) || votacaoEncerrada) return
     setNotas(prev => ({ ...prev, [userId]: valor }))
   }
 
@@ -178,8 +179,20 @@ export default function NotasPage() {
           </p>
         </div>
 
+        {/* Aviso votação encerrada */}
+        {votacaoEncerrada && (
+          <div style={{ backgroundColor: '#fee2e2', border: '1px solid #dc262633', borderRadius: '1rem', padding: '0.875rem 1rem' }}>
+            <p style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 700, margin: 0 }}>
+              ⏱️ Janela de votação encerrada
+            </p>
+            <p style={{ fontSize: '0.75rem', color: '#b91c1c', margin: '4px 0 0' }}>
+              O prazo de 2h30 para dar notas já expirou.
+            </p>
+          </div>
+        )}
+
         {/* Jogadores pendentes */}
-        {pendentes.length > 0 && (
+        {!votacaoEncerrada && pendentes.length > 0 && (
           <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
             <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', margin: 0 }}>
@@ -264,7 +277,7 @@ export default function NotasPage() {
       </div>
 
       {/* Botão salvar */}
-      {pendentes.length > 0 && (
+      {!votacaoEncerrada && pendentes.length > 0 && (
         <div style={{ position: 'fixed', bottom: '5rem', left: 0, right: 0, padding: '0 1rem', zIndex: 40 }}>
           <div style={{ maxWidth: '640px', margin: '0 auto' }}>
             <button onClick={salvarNotas} disabled={saving}

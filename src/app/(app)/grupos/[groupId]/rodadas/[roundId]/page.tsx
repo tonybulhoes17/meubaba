@@ -325,7 +325,7 @@ export default function RodadaPage() {
     setSaving('encerrar')
 
     const agora = new Date().toISOString()
-    const fechaEm4h = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString()
+    const fechaEm4h = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
 
     await supabase.from('rounds').update({ status: 'finished', finished_at: agora }).eq('id', roundId)
 

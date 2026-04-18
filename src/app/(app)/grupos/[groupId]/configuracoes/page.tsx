@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Save, Loader2, Copy, Check, RefreshCw, Trash2, Shield, UserMinus, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Copy, Check, RefreshCw, Trash2, Shield, UserMinus, AlertTriangle, UserPlus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Membro {
@@ -45,6 +45,15 @@ export default function ConfiguracoesPage() {
   // Confirmações
   const [confirmRemover, setConfirmRemover] = useState<string | null>(null)
   const [confirmPromover, setConfirmPromover] = useState<string | null>(null)
+
+  // Cadastro rápido pelo admin
+  const [mostrarCadastroRapido, setMostrarCadastroRapido] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
+  const [novoEmail, setNovoEmail] = useState('')
+  const [novaSenha, setNovaSenha] = useState('')
+  const [cadastrandoMembro, setCadastrandoMembro] = useState(false)
+  const [erroCadastro, setErroCadastro] = useState<string | null>(null)
+  const [cadastroOk, setCadastroOk] = useState(false)
 
   useEffect(() => { fetchData() }, [groupId])
 
@@ -165,6 +174,43 @@ export default function ConfiguracoesPage() {
     await fetchMembros()
   }
 
+  async function cadastrarMembroRapido() {
+    if (!novoNome.trim() || !novoEmail.trim() || !novaSenha.trim()) return
+    if (novaSenha.length < 6) { setErroCadastro('A senha deve ter pelo menos 6 caracteres.'); return }
+    setCadastrandoMembro(true)
+    setErroCadastro(null)
+
+    // Usa a API do Supabase Auth via signUp para criar o usuário
+    // Como não temos service_role no client, usamos a API de admin via endpoint
+    try {
+      const res = await fetch('/api/admin/cadastrar-membro', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: novoNome.trim(),
+          email: novoEmail.trim().toLowerCase(),
+          senha: novaSenha,
+          groupId,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setErroCadastro(json.error ?? 'Erro ao cadastrar.')
+      } else {
+        setCadastroOk(true)
+        setNovoNome('')
+        setNovoEmail('')
+        setNovaSenha('')
+        setMostrarCadastroRapido(false)
+        setTimeout(() => setCadastroOk(false), 3000)
+        await fetchMembros()
+      }
+    } catch {
+      setErroCadastro('Erro de conexão. Tente novamente.')
+    }
+    setCadastrandoMembro(false)
+  }
+
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
   }
@@ -281,6 +327,61 @@ export default function ConfiguracoesPage() {
         {/* ========== SEÇÃO MEMBROS ========== */}
         {secao === 'membros' && (
           <>
+            {/* Cadastro rápido */}
+            <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+              <button onClick={() => { setMostrarCadastroRapido(v => !v); setErroCadastro(null) }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', background: 'none', border: 'none', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <UserPlus size={16} color="#16a34a" />
+                  <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#1e293b' }}>Cadastrar membro</span>
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 600 }}>{mostrarCadastroRapido ? 'Fechar' : 'Novo'}</span>
+              </button>
+
+              {mostrarCadastroRapido && (
+                <div style={{ padding: '0 1rem 1rem', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingTop: '1rem' }}>
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>
+                    Cadastra o usuário na plataforma e já adiciona ao grupo automaticamente.
+                  </p>
+
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Nome completo</label>
+                    <input value={novoNome} onChange={e => setNovoNome(e.target.value)}
+                      placeholder="Ex: João Silva"
+                      style={{ width: '100%', padding: '0.75rem', border: '2px solid #e2e8f0', borderRadius: '0.75rem', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Email</label>
+                    <input value={novoEmail} onChange={e => setNovoEmail(e.target.value)}
+                      type="email" placeholder="email@exemplo.com"
+                      style={{ width: '100%', padding: '0.75rem', border: '2px solid #e2e8f0', borderRadius: '0.75rem', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Senha</label>
+                    <input value={novaSenha} onChange={e => setNovaSenha(e.target.value)}
+                      type="password" placeholder="Mínimo 6 caracteres"
+                      style={{ width: '100%', padding: '0.75rem', border: '2px solid #e2e8f0', borderRadius: '0.75rem', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+
+                  {erroCadastro && (
+                    <div style={{ backgroundColor: '#fee2e2', color: '#dc2626', fontSize: '0.8rem', padding: '0.75rem', borderRadius: '0.75rem' }}>{erroCadastro}</div>
+                  )}
+                  {cadastroOk && (
+                    <div style={{ backgroundColor: '#dcfce7', color: '#16a34a', fontSize: '0.8rem', padding: '0.75rem', borderRadius: '0.75rem', fontWeight: 700 }}>✅ Membro cadastrado com sucesso!</div>
+                  )}
+
+                  <button onClick={cadastrarMembroRapido}
+                    disabled={cadastrandoMembro || !novoNome.trim() || !novoEmail.trim() || !novaSenha.trim()}
+                    style={{ width: '100%', padding: '0.875rem', borderRadius: '0.875rem', border: 'none', background: cadastrandoMembro ? '#94a3b8' : 'linear-gradient(135deg, #16a34a, #15803d)', color: 'white', fontWeight: 700, fontSize: '0.875rem', cursor: cadastrandoMembro ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                    {cadastrandoMembro ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+                    {cadastrandoMembro ? 'Cadastrando...' : 'Cadastrar e adicionar ao grupo'}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Admins */}
             <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
               <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>

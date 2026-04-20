@@ -954,7 +954,7 @@ export default function RodadaPage() {
         {/* ======================== TAB: JOGOS ======================== */}
         {activeTab === 'jogos' && (
           <>
-            {isAdmin && !isFinished && timesCount >= 2 && (
+            {isAdmin && timesCount >= 2 && (
               <button
                 onClick={() => router.push(`/grupos/${groupId}/rodadas/${roundId}/jogos`)}
                 className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-3.5 rounded-2xl transition-all">

@@ -581,6 +581,29 @@ export default function RodadaPage() {
                               </span>
                               <p style={{ flex: 1, fontSize: '0.85rem', fontWeight: i < 3 ? 700 : 500, color: '#1e293b', margin: 0 }}>{nome}</p>
                               {p.is_guest && <span style={{ fontSize: '0.62rem', color: '#94a3b8', backgroundColor: '#f1f5f9', padding: '1px 6px', borderRadius: '9999px' }}>convidado</span>}
+                              {/* Botão remover checkin */}
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  const attId = (p as any).attendance_id
+                                  if (!attId) return
+                                  await supabase.from('round_attendance')
+                                    .update({ checked_in: false, arrival_order: null })
+                                    .eq('id', attId)
+                                  // Reordena os demais
+                                  const restantes = presentes.filter((_, idx) => idx !== i)
+                                  for (let j = 0; j < restantes.length; j++) {
+                                    await supabase.from('round_attendance')
+                                      .update({ arrival_order: j + 1 })
+                                      .eq('id', (restantes[j] as any).attendance_id)
+                                  }
+                                  fetchData()
+                                }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', flexShrink: 0, display: 'flex', alignItems: 'center', borderRadius: '0.375rem' }}
+                                title="Remover check-in"
+                              >
+                                <X size={14} />
+                              </button>
                             </div>
                           )
                         })}

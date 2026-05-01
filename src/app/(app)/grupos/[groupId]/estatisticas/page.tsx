@@ -13,6 +13,7 @@ interface Jogador {
   assistencias: number
   vermelhos: number
   presencas: number
+  notas: number
 }
 
 interface DestaqueInfo {
@@ -25,15 +26,17 @@ interface DestaqueInfo {
 interface Destaque {
   craque: DestaqueInfo | null
   bolaMurcha: DestaqueInfo | null
+  paredao: DestaqueInfo | null
 }
 
-type AbaRanking = 'gols' | 'assistencias' | 'vermelhos' | 'presencas'
+type AbaRanking = 'gols' | 'assistencias' | 'vermelhos' | 'presencas' | 'notas'
 
 const ABA_CONFIG: Record<AbaRanking, { icon: string; label: string; color: string; bg: string }> = {
   gols:         { icon: '⚽', label: 'Artilharia',   color: '#16a34a', bg: '#dcfce7' },
   assistencias: { icon: '🅰️', label: 'Assistências', color: '#2563eb', bg: '#dbeafe' },
   vermelhos:    { icon: '🟥', label: 'Disciplina',   color: '#dc2626', bg: '#fee2e2' },
   presencas:    { icon: '📅', label: 'Presenças',    color: '#7c3aed', bg: '#ede9fe' },
+  notas:        { icon: '⭐', label: 'Notas',        color: '#f59e0b', bg: '#fef9c3' },
 }
 
 export default function EstatisticasPage() {
@@ -47,7 +50,8 @@ export default function EstatisticasPage() {
   const [seasonName, setSeasonName] = useState('')
   const [isHistorico, setIsHistorico] = useState(false)
   const [jogadores, setJogadores] = useState<Jogador[]>([])
-  const [destaque, setDestaque] = useState<Destaque>({ craque: null, bolaMurcha: null })
+  const [destaque, setDestaque] = useState<Destaque>({ craque: null, bolaMurcha: null, paredao: null })
+  const [notasRanking, setNotasRanking] = useState<{ user_id: string; full_name: string; photo_url: string | null; media: number }[]>([])
   const [aba, setAba] = useState<AbaRanking>('gols')
 
   useEffect(() => {
@@ -109,7 +113,7 @@ export default function EstatisticasPage() {
         user_id: m.user_id,
         full_name: p?.full_name ?? 'Jogador',
         photo_url: p?.photo_url ?? null,
-        gols: 0, assistencias: 0, vermelhos: 0, presencas: 0,
+        gols: 0, assistencias: 0, vermelhos: 0, presencas: 0, notas: 0,
       }
     }
     for (const ev of eventos ?? []) {
@@ -122,6 +126,43 @@ export default function EstatisticasPage() {
       if (!p.user_id || !statsMap[p.user_id]) continue
       statsMap[p.user_id].presencas++
     }
+    // Busca notas da temporada para ranking
+    const { data: ratingsRaw } = await supabase
+      .from('player_ratings')
+      .select('rated_id, rating, profile:profiles!player_ratings_rated_id_fkey(full_name, photo_url)')
+      .eq('season_id', season.id)
+
+    // Critério 40% de presenças
+    const totalRodadas = roundIds.length
+    const minimoRodadas = Math.ceil(totalRodadas * 0.4)
+    const presencasMap: Record<string, number> = {}
+    for (const p of presencas ?? []) {
+      if (!p.user_id) continue
+      presencasMap[p.user_id] = (presencasMap[p.user_id] ?? 0) + 1
+    }
+
+    if (ratingsRaw && ratingsRaw.length > 0) {
+      const mapaNotas: Record<string, { soma: number; total: number; nome: string; foto: string | null }> = {}
+      for (const r of ratingsRaw) {
+        const prof = r.profile as any
+        if (!mapaNotas[r.rated_id]) {
+          mapaNotas[r.rated_id] = { soma: 0, total: 0, nome: prof?.full_name ?? 'Jogador', foto: prof?.photo_url ?? null }
+        }
+        mapaNotas[r.rated_id].soma += r.rating
+        mapaNotas[r.rated_id].total++
+      }
+      const notasLista = Object.entries(mapaNotas)
+        .filter(([uid]) => (presencasMap[uid] ?? 0) >= minimoRodadas)
+        .map(([uid, d]) => ({
+          user_id: uid,
+          full_name: d.nome,
+          photo_url: d.foto,
+          media: Math.round(d.soma / d.total),
+        }))
+        .sort((a, b) => b.media - a.media)
+      setNotasRanking(notasLista)
+    }
+
     setJogadores(Object.values(statsMap))
 
     // Última rodada finalizada
@@ -136,7 +177,7 @@ export default function EstatisticasPage() {
       const { data: polls } = await supabase
         .from('polls').select('id, type, is_closed, closes_at')
         .eq('round_id', ultimaRodada.id)
-        .in('type', ['craque', 'bola_murcha'])
+        .in('type', ['craque', 'bola_murcha', 'paredao'])
 
       // Filtra só as encerradas (is_closed=true OU closes_at já passou)
       const pollsEncerradas = (polls ?? []).filter((p: any) =>
@@ -173,7 +214,8 @@ export default function EstatisticasPage() {
         }
 
         if (poll.type === 'craque') setDestaque(d => ({ ...d, craque: info }))
-        else setDestaque(d => ({ ...d, bolaMurcha: info }))
+        else if (poll.type === 'bola_murcha') setDestaque(d => ({ ...d, bolaMurcha: info }))
+        else if (poll.type === 'paredao') setDestaque(d => ({ ...d, paredao: info }))
       }
     }
 
@@ -221,31 +263,32 @@ export default function EstatisticasPage() {
         {seasonName && (
           <>
             {/* Destaques */}
-            {(destaque.craque || destaque.bolaMurcha) && (
+            {(destaque.craque || destaque.bolaMurcha || destaque.paredao) && (
               <div>
                 <p style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.5rem' }}>
                   ⭐ Destaque da última rodada
                 </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                   {[
-                    { key: 'craque', icon: '🏆', label: 'Craque', data: destaque.craque, cor: '#f59e0b', bg: '#fef9c3', borda: '#f59e0b' },
+                    { key: 'craque',     icon: '🏆', label: 'Craque',     data: destaque.craque,     cor: '#f59e0b', bg: '#fef9c3', borda: '#f59e0b' },
                     { key: 'bolaMurcha', icon: '💩', label: 'Bola Murcha', data: destaque.bolaMurcha, cor: '#94a3b8', bg: '#f1f5f9', borda: '#94a3b8' },
+                    { key: 'paredao',    icon: '🧤', label: 'Paredão',     data: destaque.paredao,    cor: '#0891b2', bg: '#e0f2fe', borda: '#0891b2' },
                   ].map(({ key, icon, label, data, cor, bg, borda }) => (
-                    <div key={key} style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${borda}33`, textAlign: 'center' }}>
-                      <p style={{ fontSize: '1.5rem', margin: '0 0 0.25rem' }}>{icon}</p>
-                      <p style={{ fontSize: '0.62rem', fontWeight: 700, color: cor, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.5rem' }}>{label}</p>
+                    <div key={key} style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '0.75rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${borda}33`, textAlign: 'center' }}>
+                      <p style={{ fontSize: '1.3rem', margin: '0 0 0.2rem' }}>{icon}</p>
+                      <p style={{ fontSize: '0.55rem', fontWeight: 700, color: cor, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.4rem' }}>{label}</p>
                       {data ? (
                         <>
-                          <div style={{ width: '3rem', height: '3rem', borderRadius: '9999px', backgroundColor: bg, border: `3px solid ${borda}`, margin: '0 auto 0.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                          <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '9999px', backgroundColor: bg, border: `3px solid ${borda}`, margin: '0 auto 0.4rem', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                             {data.foto
                               ? <img src={data.foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: cor }}>{data.initials}</span>}
+                              : <span style={{ fontSize: '0.65rem', fontWeight: 700, color: cor }}>{data.initials}</span>}
                           </div>
-                          <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{data.nome.split(' ')[0]}</p>
-                          <p style={{ fontSize: '0.62rem', color: '#94a3b8', margin: '2px 0 0' }}>{data.rodada}</p>
+                          <p style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{data.nome.split(' ')[0]}</p>
+                          <p style={{ fontSize: '0.58rem', color: '#94a3b8', margin: '2px 0 0' }}>{data.rodada}</p>
                         </>
                       ) : (
-                        <p style={{ fontSize: '0.75rem', color: '#cbd5e1', margin: 0 }}>Ainda não eleito</p>
+                        <p style={{ fontSize: '0.68rem', color: '#cbd5e1', margin: 0 }}>Não eleito</p>
                       )}
                     </div>
                   ))}
@@ -258,7 +301,7 @@ export default function EstatisticasPage() {
               <p style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.5rem' }}>
                 🏅 Rankings da temporada
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.4rem', marginBottom: '0.875rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: '0.4rem', marginBottom: '0.875rem' }}>
                 {(Object.keys(ABA_CONFIG) as AbaRanking[]).map(key => {
                   const cfg = ABA_CONFIG[key]
                   const ativo = aba === key
@@ -282,7 +325,37 @@ export default function EstatisticasPage() {
                   </p>
                 </div>
 
-                {ranking.filter(j => j[aba] > 0).length === 0 ? (
+                {aba === 'notas' ? (
+                  notasRanking.length === 0 ? (
+                    <div style={{ padding: '2.5rem', textAlign: 'center' }}>
+                      <p style={{ fontSize: '2rem', margin: '0 0 0.25rem' }}>⭐</p>
+                      <p style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Nenhuma nota ainda</p>
+                      <p style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '4px' }}>Mínimo 40% de presenças para entrar no ranking</p>
+                    </div>
+                  ) : notasRanking.map((j, i) => {
+                    const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
+                    const medalha = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null
+                    const top3 = i < 3
+                    const notaCor = j.media >= 80 ? '#15803d' : j.media >= 60 ? '#1d4ed8' : j.media >= 40 ? '#a16207' : '#b91c1c'
+                    const notaBg = j.media >= 80 ? '#dcfce7' : j.media >= 60 ? '#dbeafe' : j.media >= 40 ? '#fef9c3' : '#fee2e2'
+                    return (
+                      <div key={j.user_id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: '1px solid #f8fafc', backgroundColor: top3 ? '#fef9c366' : 'white' }}>
+                        <div style={{ width: '1.75rem', textAlign: 'center', flexShrink: 0 }}>
+                          {medalha ? <span style={{ fontSize: '1.1rem' }}>{medalha}</span> : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>#{i + 1}</span>}
+                        </div>
+                        <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: '#fef9c3', border: '2px solid #f59e0b44', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                          {j.photo_url
+                            ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b' }}>{initials}</span>}
+                        </div>
+                        <p style={{ flex: 1, fontSize: '0.875rem', fontWeight: top3 ? 700 : 500, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.full_name}</p>
+                        <div style={{ backgroundColor: notaBg, border: `2px solid ${notaCor}33`, borderRadius: '0.625rem', padding: '3px 10px', flexShrink: 0 }}>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 900, color: notaCor }}>{j.media}</span>
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : ranking.filter(j => j[aba] > 0).length === 0 ? (
                   <div style={{ padding: '2.5rem', textAlign: 'center' }}>
                     <p style={{ fontSize: '2rem', margin: '0 0 0.25rem' }}>{abaCfg.icon}</p>
                     <p style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Nenhum registro ainda</p>

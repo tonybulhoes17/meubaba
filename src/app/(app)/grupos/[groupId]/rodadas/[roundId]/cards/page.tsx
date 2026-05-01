@@ -19,12 +19,13 @@ interface DadosRodada {
   roundDate: string
   craque: { nome: string; foto: string | null; initials: string } | null
   bolaMurcha: { nome: string; foto: string | null; initials: string } | null
+  paredao: { nome: string; foto: string | null; initials: string } | null
   artilheiros: Jogador[]
   assistentes: Jogador[]
   topNotas: Jogador[]
 }
 
-type TipoCard = 'craque' | 'bola_murcha' | 'artilheiros' | 'assistencias' | 'notas'
+type TipoCard = 'craque' | 'bola_murcha' | 'paredao' | 'artilheiros' | 'assistencias' | 'notas'
 
 const CARD_CONFIG: Record<TipoCard, { titulo: string; emoji: string; cor1: string; cor2: string; label: string }> = {
   craque:       { titulo: 'Craque da Rodada',    emoji: '🏆', cor1: '#f59e0b', cor2: '#d97706', label: 'votos' },
@@ -32,6 +33,7 @@ const CARD_CONFIG: Record<TipoCard, { titulo: string; emoji: string; cor1: strin
   artilheiros:  { titulo: 'Top Artilheiros',      emoji: '⚽', cor1: '#16a34a', cor2: '#15803d', label: 'gols' },
   assistencias: { titulo: 'Top Assistências',     emoji: '🅰️', cor1: '#2563eb', cor2: '#1d4ed8', label: 'assist.' },
   notas:        { titulo: 'Top Notas da Rodada',  emoji: '⭐', cor1: '#7c3aed', cor2: '#6d28d9', label: 'pts' },
+  paredao:      { titulo: 'Paredão da Rodada',     emoji: '🧤', cor1: '#0891b2', cor2: '#0e7490', label: 'votos' },
 }
 
 export default function CardsPage() {
@@ -67,7 +69,7 @@ export default function CardsPage() {
       .from('polls')
       .select('id, type, poll_options(id, user_id, label, profile:profiles(full_name, photo_url)), poll_votes(option_id)')
       .eq('round_id', roundId)
-      .in('type', ['craque', 'bola_murcha'])
+      .in('type', ['craque', 'bola_murcha', 'paredao'])
 
     function getVencedor(poll: any) {
       if (!poll) return null
@@ -83,6 +85,7 @@ export default function CardsPage() {
 
     const pollCraque = polls?.find((p: any) => p.type === 'craque')
     const pollBolaMurcha = polls?.find((p: any) => p.type === 'bola_murcha')
+    const pollParedao = polls?.find((p: any) => p.type === 'paredao')
 
     // Eventos (gols e assistências)
     const { data: eventos } = await supabase
@@ -131,6 +134,7 @@ export default function CardsPage() {
       roundDate: round?.scheduled_date ? new Date(round.scheduled_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) : '',
       craque: getVencedor(pollCraque),
       bolaMurcha: getVencedor(pollBolaMurcha),
+      paredao: getVencedor(pollParedao),
       artilheiros: Object.values(golsMap).sort((a, b) => b.valor - a.valor).slice(0, 3),
       assistentes: Object.values(assistMap).sort((a, b) => b.valor - a.valor).slice(0, 3),
       topNotas,
@@ -171,7 +175,7 @@ export default function CardsPage() {
   }
 
   // Todos podem gerar todos os cards
-  const cardsDisponiveis: TipoCard[] = ['craque', 'bola_murcha', 'artilheiros', 'assistencias', 'notas']
+  const cardsDisponiveis: TipoCard[] = ['craque', 'bola_murcha', 'paredao', 'artilheiros', 'assistencias', 'notas']
 
   if (loading || !dados) return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -183,8 +187,8 @@ export default function CardsPage() {
 
   // Conteúdo do card baseado no tipo
   function renderCardContent() {
-    if (tipoAtivo === 'craque' || tipoAtivo === 'bola_murcha') {
-      const pessoa = tipoAtivo === 'craque' ? dados!.craque : dados!.bolaMurcha
+    if (tipoAtivo === 'craque' || tipoAtivo === 'bola_murcha' || tipoAtivo === 'paredao') {
+      const pessoa = tipoAtivo === 'craque' ? dados!.craque : tipoAtivo === 'bola_murcha' ? dados!.bolaMurcha : dados!.paredao
       if (!pessoa) return (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '1rem' }}>Sem dados ainda</p>
@@ -213,7 +217,7 @@ export default function CardsPage() {
           </div>
           <div style={{ backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: '9999px', padding: '0.5rem 1.5rem' }}>
             <span style={{ color: 'white', fontWeight: 800, fontSize: '1rem' }}>
-              {tipoAtivo === 'craque' ? '⭐ Melhor em campo' : '😴 Abaixo do esperado'}
+              {tipoAtivo === 'craque' ? '⭐ Melhor em campo' : tipoAtivo === 'paredao' ? '🧤 Melhor goleiro' : '😴 Abaixo do esperado'}
             </span>
           </div>
         </div>

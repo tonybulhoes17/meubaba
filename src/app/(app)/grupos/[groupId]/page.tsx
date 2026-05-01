@@ -31,6 +31,7 @@ export default function GrupoDashboard() {
   const [topArtilheiros, setTopArtilheiros] = useState<{ user_id: string; nome: string; foto: string | null; initials: string; gols: number }[]>([])
   const [enquetesAbertas, setEnquetesAbertas] = useState<{ id: string; title: string; closes_at: string }[]>([])
   const [ultimoCraque, setUltimoCraque] = useState<{ nome: string; foto: string | null; initials: string; rodada: string } | null>(null)
+  const [ultimoParedao, setUltimoParedao] = useState<{ nome: string; foto: string | null; initials: string; rodada: string } | null>(null)
   const [rodadaNotasAberta, setRodadaNotasAberta] = useState<{ id: string; title: string } | null>(null)
   const [minhaNotaInfo, setMinhaNotaInfo] = useState<{ media: number; posicao: number } | null>(null)
 
@@ -200,6 +201,47 @@ export default function GrupoDashboard() {
             foto: prof?.photo_url ?? null,
             initials: nome.split(' ').map((n: string) => n[0]).slice(0, 2).join(''),
             rodada: round?.title ?? `Rodada de ${dataRodada}`,
+          })
+        }
+      }
+    }
+
+    // Último paredão da rodada (fechada ou com prazo expirado)
+    if (season) {
+      const { data: ultimaPollParedao } = await supabase
+        .from('polls')
+        .select('id, round_id, rounds(title, scheduled_date)')
+        .eq('group_id', groupId)
+        .eq('type', 'paredao')
+        .lt('closes_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (ultimaPollParedao) {
+        const { data: opcoesParedao } = await supabase
+          .from('poll_options')
+          .select('id, user_id, label, profile:profiles(full_name, photo_url)')
+          .eq('poll_id', ultimaPollParedao.id)
+
+        const { data: votosParedao } = await supabase
+          .from('poll_votes').select('option_id').eq('poll_id', ultimaPollParedao.id)
+
+        if (opcoesParedao && opcoesParedao.length > 0) {
+          const contagemP: Record<string, number> = {}
+          for (const v of votosParedao ?? []) contagemP[v.option_id] = (contagemP[v.option_id] ?? 0) + 1
+          const vencedorP = opcoesParedao.reduce((a: any, b: any) => (contagemP[b.id] ?? 0) > (contagemP[a.id] ?? 0) ? b : a)
+          const profP = vencedorP.profile as any
+          const nomeP = profP?.full_name ?? vencedorP.label ?? 'Goleiro'
+          const roundP = ultimaPollParedao.rounds as any
+          const dataRodadaP = roundP?.scheduled_date
+            ? new Date(roundP.scheduled_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+            : ''
+          setUltimoParedao({
+            nome: nomeP,
+            foto: profP?.photo_url ?? null,
+            initials: nomeP.split(' ').map((n: string) => n[0]).slice(0, 2).join(''),
+            rodada: roundP?.title ?? `Rodada de ${dataRodadaP}`,
           })
         }
       }
@@ -465,6 +507,35 @@ export default function GrupoDashboard() {
               </p>
               <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: '2px 0 0' }}>
                 {ultimoCraque.rodada}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Último Paredão da Rodada */}
+        {ultimoParedao && (
+          <div style={{
+            background: 'linear-gradient(135deg, #0891b2, #0e7490)',
+            borderRadius: '1rem', padding: '1rem', boxShadow: '0 4px 16px rgba(8,145,178,0.3)',
+            display: 'flex', alignItems: 'center', gap: '1rem',
+          }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div style={{ width: '3.5rem', height: '3.5rem', borderRadius: '9999px', backgroundColor: 'rgba(255,255,255,0.2)', border: '3px solid rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                {ultimoParedao.foto
+                  ? <img src={ultimoParedao.foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: '1rem', fontWeight: 700, color: 'white' }}>{ultimoParedao.initials}</span>}
+              </div>
+              <div style={{ position: 'absolute', bottom: '-4px', right: '-4px', fontSize: '1.1rem' }}>🧤</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>
+                🧤 Paredão da última rodada
+              </p>
+              <p style={{ color: 'white', fontSize: '1rem', fontWeight: 800, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ultimoParedao.nome}
+              </p>
+              <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: '2px 0 0' }}>
+                {ultimoParedao.rodada}
               </p>
             </div>
           </div>

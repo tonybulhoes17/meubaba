@@ -321,18 +321,39 @@ export default function RodadaPage() {
   }
 
   async function handleEncerrarRodada() {
-    if (!confirm('Encerrar a rodada? Isso abrirá as votações de Craque e Bola Murcha.')) return
+    if (!confirm('Encerrar a rodada? Isso abrirá as votações de Craque, Bola Murcha e Paredão.')) return
     setSaving('encerrar')
 
     const agora = new Date().toISOString()
-    const fechaEm4h = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+    const fechaEm = new Date(Date.now() + 2.5 * 60 * 60 * 1000).toISOString()
 
     await supabase.from('rounds').update({ status: 'finished', finished_at: agora }).eq('id', roundId)
 
-    // Apenas membros (não convidados) participam das enquetes
+    // Busca quais jogadores são goleiros nesta rodada
+    const { data: teamPlayersData } = await supabase
+      .from('team_players')
+      .select('user_id, is_goalkeeper')
+      .in('team_id', (
+        await supabase.from('teams').select('id').eq('round_id', roundId)
+      ).data?.map((t: any) => t.id) ?? [])
+
+    const goleirosIds = new Set(
+      (teamPlayersData ?? [])
+        .filter((tp: any) => tp.is_goalkeeper && tp.user_id)
+        .map((tp: any) => tp.user_id)
+    )
+
+    // Membros com check-in
     const checkedInMembers = membros.filter(m => m.checked_in)
 
-    if (checkedInMembers.length > 0) {
+    // Membros sem goleiros — para Craque e Bola Murcha
+    const membrosLineField = checkedInMembers.filter(m => !goleirosIds.has(m.user_id))
+
+    // Apenas goleiros — para Paredão
+    const membrosGoleiros = checkedInMembers.filter(m => goleirosIds.has(m.user_id))
+
+    // Enquetes Craque e Bola Murcha (sem goleiros)
+    if (membrosLineField.length > 0) {
       for (const tipo of ['craque', 'bola_murcha'] as const) {
         const titulo = tipo === 'craque' ? '⭐ Craque da Rodada' : '🥱 Bola Murcha'
         const { data: poll } = await supabase.from('polls').insert({
@@ -345,13 +366,13 @@ export default function RodadaPage() {
           is_multiple_choice: false,
           created_by: myUserId,
           opens_at: agora,
-          closes_at: fechaEm4h,
+          closes_at: fechaEm,
           is_closed: false,
         }).select().single()
 
         if (poll) {
           await supabase.from('poll_options').insert(
-            checkedInMembers.map(m => ({
+            membrosLineField.map(m => ({
               poll_id: poll.id,
               user_id: m.user_id,
               label: m.full_name,
@@ -361,13 +382,40 @@ export default function RodadaPage() {
       }
     }
 
+    // Enquete Paredão (só goleiros)
+    if (membrosGoleiros.length > 0) {
+      const { data: pollParedao } = await supabase.from('polls').insert({
+        group_id: groupId,
+        round_id: roundId,
+        season_id: rodada!.season_id,
+        type: 'paredao',
+        title: '🧤 Paredão da Rodada',
+        show_partial: false,
+        is_multiple_choice: false,
+        created_by: myUserId,
+        opens_at: agora,
+        closes_at: fechaEm,
+        is_closed: false,
+      }).select().single()
+
+      if (pollParedao) {
+        await supabase.from('poll_options').insert(
+          membrosGoleiros.map(m => ({
+            poll_id: pollParedao.id,
+            user_id: m.user_id,
+            label: m.full_name,
+          }))
+        )
+      }
+    }
+
     setSaving(null)
 
-    // Notifica membros sobre rodada encerrada e enquetes abertas
+    // Notifica membros
     const tituloRodada = rodada?.title ?? 'Rodada'
     await notificarMembros(groupId, 'round_finished',
       `✅ ${tituloRodada} encerrada!`,
-      'Vote no Craque da Rodada e dê notas aos jogadores 🏆',
+      'Vote no Craque, Paredão e dê notas aos jogadores 🏆',
       { round_id: roundId }, undefined)
 
     fetchData()

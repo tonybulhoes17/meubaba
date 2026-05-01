@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, Trash2, Shuffle, Save, Loader2, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Shuffle, Save, Loader2, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Jogador {
@@ -13,6 +13,7 @@ interface Jogador {
   photo_url: string | null
   position_1: string | null
   is_guest: boolean
+  is_goalkeeper?: boolean
 }
 
 interface Time {
@@ -50,6 +51,8 @@ export default function TimesPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'lista' | 'vs'>('lista')
+  const [busca, setBusca] = useState('')
+  const [goleiros, setGoleiros] = useState<Record<string, boolean>>({})
 
   useEffect(() => { fetchData() }, [roundId])
 
@@ -68,6 +71,7 @@ export default function TimesPage() {
       photo_url: a.is_guest ? null : (a.profile?.photo_url ?? null),
       position_1: a.is_guest ? null : (a.profile?.position_1 ?? null),
       is_guest: a.is_guest,
+      is_goalkeeper: false,
     }))
 
     setPresentes(jogadores)
@@ -149,6 +153,7 @@ export default function TimesPage() {
             user_id: j.user_id,
             attendance_id: j.is_guest ? j.attendance_id : null,
             is_guest: j.is_guest,
+            is_goalkeeper: goleiros[j.key] ?? false,
           }))
         )
       }
@@ -170,17 +175,19 @@ export default function TimesPage() {
     onRemover?: () => void
   }) {
     const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
+    const isGk = goleiros[j.key] ?? false
     return (
       <div style={{
         display: 'flex', alignItems: 'center', gap: '0.75rem',
         padding: '0.625rem 1rem',
         borderBottom: '1px solid rgba(0,0,0,0.04)',
+        backgroundColor: isGk ? '#fef9c3' : 'white',
       }}>
         {/* Avatar */}
         <div style={{
           width: '2.5rem', height: '2.5rem', borderRadius: '9999px', flexShrink: 0,
           backgroundColor: cor ? cor + '33' : '#f1f5f9',
-          border: `2px solid ${cor ?? '#e2e8f0'}`,
+          border: `2px solid ${isGk ? '#ca8a04' : (cor ?? '#e2e8f0')}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           overflow: 'hidden',
         }}>
@@ -192,12 +199,25 @@ export default function TimesPage() {
         {/* Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {isGk && <span style={{ marginRight: '4px' }}>🧤</span>}
             {j.full_name}
           </p>
           <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '1px 0 0' }}>
             {j.is_guest ? '🎟️ convidado' : j.position_1 ? `${posicaoIcon[j.position_1] ?? ''} ${j.position_1}` : '—'}
           </p>
         </div>
+
+        {/* Botão goleiro */}
+        <button onClick={() => setGoleiros(prev => ({ ...prev, [j.key]: !prev[j.key] }))}
+          title={isGk ? 'Remover goleiro' : 'Marcar como goleiro'}
+          style={{
+            padding: '3px 8px', borderRadius: '9999px', border: `1px solid ${isGk ? '#ca8a04' : '#e2e8f0'}`,
+            backgroundColor: isGk ? '#fef08a' : '#f8fafc', cursor: 'pointer',
+            fontSize: '0.75rem', fontWeight: 700, color: isGk ? '#92400e' : '#94a3b8',
+            flexShrink: 0,
+          }}>
+          🧤
+        </button>
 
         {/* Botão remover */}
         {onRemover && (
@@ -276,12 +296,22 @@ export default function TimesPage() {
         {/* Sem time */}
         {semTime.length > 0 && (
           <div style={{ backgroundColor: 'white', borderRadius: '1rem', border: '2px dashed #cbd5e1', overflow: 'hidden' }}>
-            <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', margin: 0 }}>
                 ⏳ Sem time — {semTime.length} jogador{semTime.length !== 1 ? 'es' : ''}
               </p>
+              {/* Campo de busca */}
+              <div style={{ position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  value={busca}
+                  onChange={e => setBusca(e.target.value)}
+                  placeholder="Buscar jogador..."
+                  style={{ width: '100%', paddingLeft: '2rem', paddingRight: '0.75rem', paddingTop: '0.5rem', paddingBottom: '0.5rem', border: '1px solid #e2e8f0', borderRadius: '0.625rem', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', backgroundColor: 'white' }}
+                />
+              </div>
             </div>
-            {semTime.map(j => (
+            {semTime.filter(j => j.full_name.toLowerCase().includes(busca.toLowerCase())).map(j => (
               <div key={j.key} style={{
                 display: 'flex', alignItems: 'center', gap: '0.75rem',
                 padding: '0.625rem 1rem', borderBottom: '1px solid rgba(0,0,0,0.04)',

@@ -67,7 +67,7 @@ export default function CardsPage() {
       .from('polls')
       .select('id, type, poll_options(id, user_id, label, profile:profiles(full_name, photo_url)), poll_votes(option_id)')
       .eq('round_id', roundId)
-      .in('type', ['craque', 'bola_murcha', 'paredao'])
+      .in('type', ['craque', 'bola_murcha'])
 
     function getVencedor(poll: any) {
       if (!poll) return null

@@ -1,5 +1,5 @@
 'use client'
-
+//comentario
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Download, Share2, Loader2 } from 'lucide-react'

@@ -193,10 +193,19 @@ export default function CardsPage() {
       return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.5rem' }}>
           {/* Avatar grande */}
-          <div style={{ width: '140px', height: '140px', borderRadius: '9999px', backgroundColor: 'rgba(255,255,255,0.2)', border: '5px solid rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
-            {pessoa.foto
-              ? <img src={pessoa.foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} crossOrigin="anonymous" />
-              : <span style={{ fontSize: '3.5rem', fontWeight: 900, color: 'white' }}>{pessoa.initials}</span>}
+          <div style={{
+            width: '140px', height: '140px', borderRadius: '9999px',
+            backgroundColor: 'rgba(255,255,255,0.2)',
+            border: '5px solid rgba(255,255,255,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            ...(pessoa.foto ? {
+              backgroundImage: `url(${pessoa.foto})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            } : {}),
+          }}>
+            {!pessoa.foto && <span style={{ fontSize: '3.5rem', fontWeight: 900, color: 'white' }}>{pessoa.initials}</span>}
           </div>
           <div style={{ textAlign: 'center' }}>
             <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem', fontWeight: 600, margin: '0 0 0.25rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -248,10 +257,13 @@ export default function CardsPage() {
                 border: `${i === 0 ? 3 : 2}px solid rgba(255,255,255,0.5)`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 overflow: 'hidden', flexShrink: 0,
+                ...(j.foto ? {
+                  backgroundImage: `url(${j.foto})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                } : {}),
               }}>
-                {j.foto
-                  ? <img src={j.foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} crossOrigin="anonymous" />
-                  : <span style={{ fontSize: i === 0 ? '1.25rem' : '1rem', fontWeight: 700, color: 'white' }}>{j.initials}</span>}
+                {!j.foto && <span style={{ fontSize: i === 0 ? '1.25rem' : '1rem', fontWeight: 700, color: 'white' }}>{j.initials}</span>}
               </div>
               <p style={{
                 color: 'white',

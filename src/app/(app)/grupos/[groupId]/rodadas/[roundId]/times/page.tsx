@@ -53,6 +53,7 @@ export default function TimesPage() {
   const [viewMode, setViewMode] = useState<'lista' | 'vs'>('lista')
   const [busca, setBusca] = useState('')
   const [goleiros, setGoleiros] = useState<Record<string, boolean>>({})
+  const [erroGoleiro, setErroGoleiro] = useState<string | null>(null)
 
   useEffect(() => { fetchData() }, [roundId])
 
@@ -136,6 +137,22 @@ export default function TimesPage() {
   }
 
   async function salvarTimes() {
+    setErroGoleiro(null)
+
+    // Valida: cada time com jogadores deve ter exatamente 1 goleiro
+    const timesComJogadores = times.filter(t => t.jogadores.length > 0)
+    for (const time of timesComJogadores) {
+      const goleirosDoTime = time.jogadores.filter(j => goleiros[j.key])
+      if (goleirosDoTime.length === 0) {
+        setErroGoleiro(`O time "${time.name}" não tem goleiro marcado. Marque um goleiro com 🧤 antes de salvar.`)
+        return
+      }
+      if (goleirosDoTime.length > 1) {
+        setErroGoleiro(`O time "${time.name}" tem ${goleirosDoTime.length} goleiros marcados. Cada time pode ter apenas 1 goleiro.`)
+        return
+      }
+    }
+
     setSaving(true)
     const { data: antigos } = await supabase.from('teams').select('id').eq('round_id', roundId)
     if (antigos && antigos.length > 0) {
@@ -526,6 +543,17 @@ export default function TimesPage() {
           </div>
         )}
       </div>
+
+      {/* Erro de validação goleiro */}
+      {erroGoleiro && (
+        <div style={{ position: 'fixed', bottom: '9rem', left: 0, right: 0, padding: '0 1rem', zIndex: 41 }}>
+          <div style={{ maxWidth: '640px', margin: '0 auto', backgroundColor: '#fee2e2', border: '1px solid #dc2626', borderRadius: '1rem', padding: '0.875rem 1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+            <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>⚠️</span>
+            <p style={{ color: '#dc2626', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>{erroGoleiro}</p>
+            <button onClick={() => setErroGoleiro(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', flexShrink: 0, padding: '0 4px', fontWeight: 700 }}>✕</button>
+          </div>
+        </div>
+      )}
 
       {/* Botão salvar fixo */}
       {times.length > 0 && (

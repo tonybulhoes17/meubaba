@@ -64,32 +64,19 @@ export default function CardsPage() {
     const { data: group } = await supabase.from('groups').select('name').eq('id', groupId).single()
     const { data: round } = await supabase.from('rounds').select('title, scheduled_date').eq('id', roundId).single()
 
-    // Polls — busca separada para evitar erro RLS em joins aninhados
+    // Polls (craque e bola murcha)
     const { data: polls } = await supabase
       .from('polls')
-      .select('id, type')
+      .select('id, type, poll_options(id, user_id, label, profile:profiles(full_name, photo_url)), poll_votes(option_id)')
       .eq('round_id', roundId)
       .in('type', ['craque', 'bola_murcha', 'paredao'])
 
-    async function getVencedor(poll: any) {
+    function getVencedor(poll: any) {
       if (!poll) return null
-
-      const { data: opcoes } = await supabase
-        .from('poll_options')
-        .select('id, user_id, label, profile:profiles(full_name, photo_url)')
-        .eq('poll_id', poll.id)
-
-      const { data: votos } = await supabase
-        .from('poll_votes')
-        .select('option_id')
-        .eq('poll_id', poll.id)
-
-      if (!opcoes || opcoes.length === 0) return null
-
       const contagem: Record<string, number> = {}
-      for (const v of votos ?? []) contagem[v.option_id] = (contagem[v.option_id] ?? 0) + 1
-      const sorted = [...opcoes].sort((a: any, b: any) => (contagem[b.id] ?? 0) - (contagem[a.id] ?? 0))
-      const venc = sorted[0]
+      for (const v of poll.poll_votes ?? []) contagem[v.option_id] = (contagem[v.option_id] ?? 0) + 1
+      const opcoes = [...(poll.poll_options ?? [])].sort((a: any, b: any) => (contagem[b.id] ?? 0) - (contagem[a.id] ?? 0))
+      const venc = opcoes[0]
       if (!venc) return null
       const prof = venc.profile as any
       const nome = prof?.full_name ?? venc.label ?? 'Jogador'
@@ -145,9 +132,9 @@ export default function CardsPage() {
       groupName: group?.name ?? 'MeuBaba',
       roundTitle: round?.title ?? 'Rodada',
       roundDate: round?.scheduled_date ? new Date(round.scheduled_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }) : '',
-      craque: await getVencedor(pollCraque),
-      bolaMurcha: await getVencedor(pollBolaMurcha),
-      paredao: await getVencedor(pollParedao),
+      craque: getVencedor(pollCraque),
+      bolaMurcha: getVencedor(pollBolaMurcha),
+      paredao: getVencedor(pollParedao),
       artilheiros: Object.values(golsMap).sort((a, b) => b.valor - a.valor).slice(0, 3),
       assistentes: Object.values(assistMap).sort((a, b) => b.valor - a.valor).slice(0, 3),
       topNotas,

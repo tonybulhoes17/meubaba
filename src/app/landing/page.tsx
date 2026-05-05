@@ -1,9 +1,40 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+
+const PIXEL_ID = '844244398728448'
+
+function initPixel() {
+  if (typeof window === 'undefined' || (window as any).fbq) return
+  const n: any = (...args: unknown[]) => {
+    n.callMethod ? n.callMethod(...args) : n.queue.push(args)
+  }
+  ;(window as any).fbq = n
+  ;(window as any)._fbq = n
+  n.push = n
+  n.loaded = true
+  n.version = '2.0'
+  n.queue = []
+  const s = document.createElement('script')
+  s.async = true
+  s.src = 'https://connect.facebook.net/en_US/fbevents.js'
+  document.head.appendChild(s)
+  n('init', PIXEL_ID)
+  n('track', 'PageView')
+}
+
+function trackLead(contentName: string) {
+  const fbq = (window as any).fbq
+  if (typeof window !== 'undefined' && fbq) {
+    fbq('track', 'Lead', { content_name: contentName, content_category: 'App Signup' })
+  }
+}
 
 export default function LandingPage() {
   const router = useRouter()
+
+  useEffect(() => { initPixel() }, [])
 
   return (
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f8fafc', overflowX: 'hidden' }}>
@@ -42,7 +73,7 @@ export default function LandingPage() {
             Organize rodadas, acompanhe estatísticas, vote nos melhores, troque mensagens e gere cards para postar. Tudo em um só lugar — feito para babas de verdade.
           </p>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-            <button onClick={() => router.push('/cadastro')}
+            <button onClick={() => { trackLead('Hero CTA'); router.push('/cadastro') }}
               style={{ backgroundColor: 'white', border: 'none', borderRadius: '0.875rem', padding: '0.875rem 2rem', color: '#15803d', fontWeight: 900, fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
               Criar meu baba grátis →
             </button>
@@ -247,7 +278,7 @@ export default function LandingPage() {
           <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1.1rem', margin: '0 0 2.5rem', lineHeight: 1.6 }}>
             Crie agora, é grátis. Em 3 minutos seu grupo está organizado, com temporada, estatísticas e tudo mais.
           </p>
-          <button onClick={() => router.push('/cadastro')}
+          <button onClick={() => { trackLead('Final CTA'); router.push('/cadastro') }}
             style={{ backgroundColor: 'white', border: 'none', borderRadius: '1rem', padding: '1rem 2.5rem', color: '#15803d', fontWeight: 900, fontSize: '1.1rem', cursor: 'pointer', boxShadow: '0 4px 24px rgba(0,0,0,0.25)' }}>
             Criar meu baba agora — grátis →
           </button>

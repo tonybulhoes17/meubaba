@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
 const ADMIN_EMAIL = 'tonybulhoes17@gmail.com'
 
@@ -10,10 +12,7 @@ const supabaseAdmin = createClient(
 )
 
 export async function GET(req: NextRequest) {
-  // Verifica se é o admin pelo cookie de sessão
-  const { createServerClient } = await import('@supabase/ssr')
-  const { cookies } = await import('next/headers')
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,17 +25,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 403 })
   }
 
-  // Busca todos os usuários
   const { data: { users }, error: usersError } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 })
   if (usersError) return NextResponse.json({ error: usersError.message }, { status: 500 })
 
-  // Busca profiles para nomes
   const { data: profiles } = await supabaseAdmin.from('profiles').select('id, full_name')
   const profileMap: Record<string, string> = {}
   for (const p of profiles ?? []) profileMap[p.id] = p.full_name ?? ''
 
-  const agora = new Date()
-  const trintaDiasAtras = new Date(agora.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
   const usuariosFormatados = users.map(u => ({
     id: u.id,
@@ -47,23 +43,19 @@ export async function GET(req: NextRequest) {
 
   const usuariosAtivos30d = users.filter(u => u.last_sign_in_at && u.last_sign_in_at > trintaDiasAtras).length
 
-  // Busca grupos com admin e total de membros
   const { data: grupos } = await supabaseAdmin
     .from('groups')
-    .select(`
-      id, name, city, created_at,
-      group_members!inner(user_id, role, is_active)
-    `)
+    .select('id, name, city, created_at, group_members(user_id, role, is_active)')
     .order('created_at', { ascending: false })
 
-  const gruposFormatados = await Promise.all((grupos ?? []).map(async (g: any) => {
+  const gruposFormatados = (grupos ?? []).map((g: any) => {
     const adminMembro = g.group_members?.find((m: any) => m.role === 'admin')
     let adminName = '—'
     let adminEmail = '—'
 
     if (adminMembro) {
       adminName = profileMap[adminMembro.user_id] ?? '—'
-      const adminUser = users.find(u => u.id === adminMembro.user_id)
+      const adminUser = users.find((u: any) => u.id === adminMembro.user_id)
       adminEmail = adminUser?.email ?? '—'
     }
 
@@ -78,7 +70,7 @@ export async function GET(req: NextRequest) {
       admin_email: adminEmail,
       total_membros: totalMembros,
     }
-  }))
+  })
 
   return NextResponse.json({
     usuarios: usuariosFormatados,

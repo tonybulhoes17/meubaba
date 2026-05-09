@@ -24,6 +24,16 @@ interface Grupo {
   total_membros: number
 }
 
+interface Mensagem {
+  id: string
+  nome: string
+  email: string
+  celular: string | null
+  cidade: string | null
+  mensagem: string
+  created_at: string
+}
+
 export default function AdminPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -34,12 +44,13 @@ export default function AdminPage() {
   // Dados
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
+  const [mensagens, setMensagens] = useState<Mensagem[]>([])
   const [totalUsuarios, setTotalUsuarios] = useState(0)
   const [totalGrupos, setTotalGrupos] = useState(0)
   const [usuariosAtivos30d, setUsuariosAtivos30d] = useState(0)
 
   // UI
-  const [aba, setAba] = useState<'usuarios' | 'grupos'>('usuarios')
+  const [aba, setAba] = useState<'usuarios' | 'grupos' | 'mensagens'>('usuarios')
   const [buscaUsuario, setBuscaUsuario] = useState('')
   const [buscaGrupo, setBuscaGrupo] = useState('')
   const [ordemUsuario, setOrdemUsuario] = useState<'nome' | 'data'>('data')
@@ -71,6 +82,13 @@ export default function AdminPage() {
     setTotalUsuarios(data.totalUsuarios ?? 0)
     setTotalGrupos(data.totalGrupos ?? 0)
     setUsuariosAtivos30d(data.usuariosAtivos30d ?? 0)
+
+    // Busca mensagens de contato
+    const { data: msgs } = await supabase
+      .from('contact_messages')
+      .select('*')
+      .order('created_at', { ascending: false })
+    setMensagens(msgs ?? [])
   }
 
   async function handleSair() {
@@ -149,7 +167,7 @@ export default function AdminPage() {
 
         {/* Abas */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          {(['usuarios', 'grupos'] as const).map(a => (
+          {(['usuarios', 'grupos', 'mensagens'] as const).map(a => (
             <button key={a} onClick={() => setAba(a)}
               style={{
                 padding: '0.625rem 1.25rem', borderRadius: '0.75rem', border: 'none', cursor: 'pointer',
@@ -158,7 +176,7 @@ export default function AdminPage() {
                 fontWeight: 700, fontSize: '0.875rem',
                 display: 'flex', alignItems: 'center', gap: '0.4rem',
               }}>
-              {a === 'usuarios' ? <><Users size={15} /> Usuários</> : <><span>⚽</span> Grupos</>}
+              {a === 'usuarios' ? <><Users size={15} /> Usuários</> : a === 'grupos' ? <><span>⚽</span> Grupos</> : <><span>💬</span> Mensagens {mensagens.length > 0 && <span style={{backgroundColor:'#ef4444',color:'white',borderRadius:'9999px',padding:'1px 7px',fontSize:'0.7rem',marginLeft:'4px'}}>{mensagens.length}</span>}</>}
             </button>
           ))}
         </div>
@@ -272,7 +290,33 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
+        {/* ======= ABA MENSAGENS ======= */}
+        {aba === 'mensagens' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {mensagens.length === 0 && (
+              <div style={{ backgroundColor: '#1e293b', borderRadius: '1rem', padding: '3rem', textAlign: 'center', color: '#64748b', border: '1px solid #334155' }}>
+                <p style={{ fontSize: '2rem', margin: '0 0 0.5rem' }}>💬</p>
+                <p style={{ fontWeight: 600 }}>Nenhuma mensagem ainda</p>
+              </div>
+            )}
+            {mensagens.map((m, i) => (
+              <div key={m.id} style={{ backgroundColor: '#1e293b', borderRadius: '1rem', padding: '1.25rem', border: '1px solid #334155' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.875rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <p style={{ color: 'white', fontWeight: 800, fontSize: '1rem', margin: 0 }}>{m.nome}</p>
+                    <div style={{ display: 'flex', gap: '1rem', marginTop: '4px', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#16a34a', fontSize: '0.8rem' }}>✉️ {m.email}</span>
+                      {m.celular && <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>📱 {m.celular}</span>}
+                      {m.cidade && <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>📍 {m.cidade}</span>}
+                    </div>
+                  </div>
+                  <span style={{ color: '#64748b', fontSize: '0.75rem', flexShrink: 0 }}>{formatData(m.created_at)}</span>
+                </div>
+                <div style={{ backgroundColor: '#0f172a', borderRadius: '0.75rem', padding: '0.875rem', border: '1px solid #334155' }}>
+                  <p style={{ color: '#e2e8f0', fontSize: '0.875rem', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{m.mensagem}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+

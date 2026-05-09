@@ -160,7 +160,7 @@ export default function GruposPage() {
             className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white font-semibold py-3 px-4 rounded-2xl shadow-sm hover:bg-green-700 transition-all active:scale-95"
           >
             <LogIn size={18} />
-            Entrar com Codigo
+            Entrar
           </button>
         </div>
       </div>
@@ -275,6 +275,16 @@ export default function GruposPage() {
           className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl border-2 border-dashed border-green-200 text-green-600 font-semibold text-sm hover:bg-green-50 transition-all"
         >
           <span>🔗</span> Convidar amigo para conhecer o MeuBaba
+        </button>
+      </div>
+
+      {/* Botão fale conosco */}
+      <div className="max-w-lg mx-auto px-4 pb-3">
+        <button
+          onClick={() => router.push('/fale-conosco')}
+          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl border-2 border-dashed border-purple-200 text-purple-500 font-semibold text-sm hover:bg-purple-50 transition-all"
+        >
+          <span>💬</span> Fale Conosco
         </button>
       </div>
 

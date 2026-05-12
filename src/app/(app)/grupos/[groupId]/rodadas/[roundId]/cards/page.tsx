@@ -85,6 +85,15 @@ export default function CardsPage() {
 
     const pollCraque = polls?.find((p: any) => p.type === 'craque')
     const pollBolaMurcha = polls?.find((p: any) => p.type === 'bola_murcha')
+
+    // Poll paredao em query separada para não causar erro 400
+    const { data: paredaoData } = await supabase
+      .from('polls')
+      .select('id, type, poll_options(id, user_id, label, profile:profiles(full_name, photo_url)), poll_votes(option_id)')
+      .eq('group_id', groupId)
+      .eq('round_id', roundId)
+      .eq('type', 'paredao')
+      .limit(1)
     const pollParedao = paredaoData?.[0] ?? null
 
     // Eventos (gols e assistências)

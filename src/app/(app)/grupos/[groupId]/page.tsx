@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Settings, Users, Copy, Check, Trophy, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Settings, Users, Copy, Check, Trophy, AlertTriangle, X, Star, Target, Calendar } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import type { Group, Season, Round, MemberRole } from '@/lib/types'
@@ -34,8 +34,74 @@ export default function GrupoDashboard() {
   const [ultimoParedao, setUltimoParedao] = useState<{ nome: string; foto: string | null; initials: string; rodada: string } | null>(null)
   const [rodadaNotasAberta, setRodadaNotasAberta] = useState<{ id: string; title: string } | null>(null)
   const [minhaNotaInfo, setMinhaNotaInfo] = useState<{ media: number; posicao: number } | null>(null)
+  const [modalMembros, setModalMembros] = useState(false)
+  const [membrosLista, setMembrosLista] = useState<any[]>([])
+  const [loadingMembros, setLoadingMembros] = useState(false)
+  const [membroSelecionado, setMembroSelecionado] = useState<any | null>(null)
+  const [statsMembro, setStatsMembro] = useState<{ gols: number; presencas: number; media_nota: number } | null>(null)
 
   useEffect(() => { fetchData() }, [groupId])
+
+  async function abrirModalMembros() {
+    setModalMembros(true)
+    if (membrosLista.length > 0) return
+    setLoadingMembros(true)
+
+    const { data } = await supabase
+      .from('group_members')
+      .select('user_id, role, profiles(full_name, photo_url, bio, position_1, position_2, position_3)')
+      .eq('group_id', groupId)
+      .eq('is_active', true)
+      .order('role', { ascending: true })
+
+    setMembrosLista(data ?? [])
+    setLoadingMembros(false)
+  }
+
+  async function abrirMembro(membro: any) {
+    setMembroSelecionado(membro)
+    setStatsMembro(null)
+
+    const { data: season } = await supabase
+      .from('seasons').select('id')
+      .eq('group_id', groupId).eq('status', 'active').single()
+
+    if (!season) return
+
+    // Gols
+    const { data: roundIds } = await supabase
+      .from('rounds').select('id').eq('group_id', groupId)
+
+    const ids = roundIds?.map((r: any) => r.id) ?? []
+
+    const { count: gols } = await supabase
+      .from('match_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', membro.user_id)
+      .eq('event_type', 'goal')
+      .in('round_id', ids)
+
+    // Presenças
+    const { count: presencas } = await supabase
+      .from('round_attendance')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', membro.user_id)
+      .eq('checked_in', true)
+      .in('round_id', ids)
+
+    // Nota média
+    const { data: notas } = await supabase
+      .from('player_ratings')
+      .select('rating')
+      .eq('rated_id', membro.user_id)
+      .eq('season_id', season.id)
+
+    const media_nota = notas && notas.length > 0
+      ? Math.round(notas.reduce((s: number, n: any) => s + n.rating, 0) / notas.length)
+      : 0
+
+    setStatsMembro({ gols: gols ?? 0, presencas: presencas ?? 0, media_nota })
+  }
 
   async function fetchData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -321,11 +387,18 @@ export default function GrupoDashboard() {
             <button onClick={() => router.push('/grupos')} className="text-green-200 hover:text-white transition-colors">
               <ArrowLeft size={22} />
             </button>
-            {isAdmin && (
-              <button onClick={() => router.push(`/grupos/${groupId}/configuracoes`)} className="text-green-200 hover:text-white transition-colors">
-                <Settings size={22} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button onClick={abrirModalMembros}
+                style={{ display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '9999px', padding: '5px 12px', color: 'white', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}>
+                <Users size={13} />
+                Membros
               </button>
-            )}
+              {isAdmin && (
+                <button onClick={() => router.push(`/grupos/${groupId}/configuracoes`)} className="text-green-200 hover:text-white transition-colors">
+                  <Settings size={22} />
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">⚽</div>
@@ -662,6 +735,162 @@ export default function GrupoDashboard() {
           </div>
         )}
       </div>
+
+      {/* ===== MODAL LISTA DE MEMBROS ===== */}
+      {modalMembros && (() => {
+        const POSICAO_LABELS: Record<string, string> = {
+          goleiro: '🧤 Goleiros', zagueiro: '🛡️ Zagueiros', lateral: '↔️ Laterais',
+          volante: '⚙️ Volantes', meia: '🎯 Meias', atacante: '⚡ Atacantes',
+        }
+        const ORDEM_POS = ['goleiro', 'zagueiro', 'lateral', 'volante', 'meia', 'atacante']
+
+        const porPosicao: Record<string, any[]> = {}
+        const semPosicao: any[] = []
+        for (const m of membrosLista) {
+          const pos = m.profiles?.position_1
+          if (pos && POSICAO_LABELS[pos]) {
+            if (!porPosicao[pos]) porPosicao[pos] = []
+            porPosicao[pos].push(m)
+          } else {
+            semPosicao.push(m)
+          }
+        }
+
+        return (
+          <>
+            <div onClick={() => { setModalMembros(false); setMembroSelecionado(null) }}
+              style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 50 }} />
+            <div style={{ position: 'fixed', inset: 0, zIndex: 51, display: 'flex', flexDirection: 'column', backgroundColor: '#f8fafc', maxWidth: '640px', margin: '0 auto' }}>
+              {/* Header */}
+              <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', padding: '3rem 1rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h2 style={{ color: 'white', fontWeight: 800, fontSize: '1.1rem', margin: 0 }}>👥 Membros do Grupo</h2>
+                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem', margin: '2px 0 0' }}>{membrosLista.length} jogadores</p>
+                </div>
+                <button onClick={() => setModalMembros(false)}
+                  style={{ background: 'rgba(0,0,0,0.2)', border: 'none', borderRadius: '9999px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}>
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Lista */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+                {loadingMembros ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>Carregando...</div>
+                ) : (
+                  <>
+                    {ORDEM_POS.filter(p => porPosicao[p]?.length > 0).map(pos => (
+                      <div key={pos} style={{ marginBottom: '1.25rem' }}>
+                        <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.5rem', paddingLeft: '0.25rem' }}>
+                          {POSICAO_LABELS[pos]} ({porPosicao[pos].length})
+                        </p>
+                        <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                          {porPosicao[pos].map((m: any, i: number) => {
+                            const nome = m.profiles?.full_name ?? 'Jogador'
+                            const foto = m.profiles?.photo_url
+                            const initials = nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
+                            return (
+                              <button key={m.user_id} onClick={() => abrirMembro(m)}
+                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', border: 'none', background: 'none', cursor: 'pointer', borderBottom: i < porPosicao[pos].length - 1 ? '1px solid #f8fafc' : 'none', textAlign: 'left' }}>
+                                <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '9999px', backgroundColor: '#f1f5f9', border: '2px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                                  {foto ? <img src={foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>{initials}</span>}
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <p style={{ fontSize: '0.875rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{nome}</p>
+                                  {m.role === 'admin' && <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700 }}>👑 Admin</span>}
+                                </div>
+                                <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>›</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    {semPosicao.length > 0 && (
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.5rem', paddingLeft: '0.25rem' }}>
+                          ⚽ Outros ({semPosicao.length})
+                        </p>
+                        <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                          {semPosicao.map((m: any, i: number) => {
+                            const nome = m.profiles?.full_name ?? 'Jogador'
+                            const foto = m.profiles?.photo_url
+                            const initials = nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
+                            return (
+                              <button key={m.user_id} onClick={() => abrirMembro(m)}
+                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', border: 'none', background: 'none', cursor: 'pointer', borderBottom: i < semPosicao.length - 1 ? '1px solid #f8fafc' : 'none', textAlign: 'left' }}>
+                                <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '9999px', backgroundColor: '#f1f5f9', border: '2px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                                  {foto ? <img src={foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>{initials}</span>}
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <p style={{ fontSize: '0.875rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{nome}</p>
+                                  {m.role === 'admin' && <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700 }}>👑 Admin</span>}
+                                </div>
+                                <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>›</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* ===== MODAL PERFIL DO MEMBRO ===== */}
+            {membroSelecionado && (
+              <>
+                <div onClick={() => setMembroSelecionado(null)}
+                  style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 60 }} />
+                <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: '640px', margin: '0 auto', zIndex: 61, backgroundColor: 'white', borderRadius: '1.5rem 1.5rem 0 0', padding: '1.5rem', paddingBottom: '3rem', boxShadow: '0 -8px 40px rgba(0,0,0,0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+                    <div style={{ width: '40px', height: '4px', backgroundColor: '#e2e8f0', borderRadius: '9999px' }} />
+                  </div>
+
+                  {/* Foto e nome */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                    <div style={{ width: '5rem', height: '5rem', borderRadius: '9999px', backgroundColor: '#f1f5f9', border: '3px solid #16a34a', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {membroSelecionado.profiles?.photo_url
+                        ? <img src={membroSelecionado.profiles.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#64748b' }}>
+                            {(membroSelecionado.profiles?.full_name ?? 'J').split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                          </span>}
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{membroSelecionado.profiles?.full_name ?? 'Jogador'}</p>
+                      {membroSelecionado.role === 'admin' && <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 700 }}>👑 Administrador</span>}
+                      {membroSelecionado.profiles?.bio && (
+                        <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '6px 0 0', fontStyle: 'italic', maxWidth: '280px' }}>"{membroSelecionado.profiles.bio}"</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Stats da temporada */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                    {[
+                      { icon: '⭐', label: 'Nota Média', valor: statsMembro ? (statsMembro.media_nota > 0 ? statsMembro.media_nota : '—') : '...', cor: '#f59e0b' },
+                      { icon: '⚽', label: 'Gols', valor: statsMembro ? statsMembro.gols : '...', cor: '#16a34a' },
+                      { icon: '📅', label: 'Presenças', valor: statsMembro ? statsMembro.presencas : '...', cor: '#2563eb' },
+                    ].map(s => (
+                      <div key={s.label} style={{ backgroundColor: '#f8fafc', borderRadius: '0.875rem', padding: '0.875rem', textAlign: 'center', border: `1px solid ${s.cor}22` }}>
+                        <p style={{ fontSize: '1.25rem', margin: '0 0 4px' }}>{s.icon}</p>
+                        <p style={{ fontSize: '1.25rem', fontWeight: 900, color: s.cor, margin: 0 }}>{s.valor}</p>
+                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, margin: '2px 0 0', textTransform: 'uppercase' }}>{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button onClick={() => setMembroSelecionado(null)}
+                    style={{ width: '100%', padding: '0.875rem', borderRadius: '0.875rem', border: '2px solid #e2e8f0', background: 'none', color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}>
+                    Fechar
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )
+      })()}
 
       {modalTemporada && (
         <ModalCriarTemporada

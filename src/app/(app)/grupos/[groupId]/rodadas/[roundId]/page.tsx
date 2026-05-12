@@ -935,8 +935,8 @@ export default function RodadaPage() {
                                   <p style={{ fontSize: '0.72rem', color: cor, fontWeight: 700, margin: '2px 0 0' }}>{votosV} voto{votosV !== 1 ? 's' : ''} · {totalVotos > 0 ? Math.round(votosV/totalVotos*100) : 0}%</p>
                                 </div>
                               </div>
-                              {/* Demais opções */}
-                              {opcoesOrdenadas.slice(1, 4).map((opt: any, i: number) => {
+                              {/* Demais opções — só para Craque */}
+                              {isCraque && opcoesOrdenadas.slice(1, 4).map((opt: any, i: number) => {
                                 const prof = opt.profile as any
                                 const nome = prof?.full_name ?? opt.label ?? 'Jogador'
                                 const initials = nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')

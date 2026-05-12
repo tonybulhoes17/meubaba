@@ -821,11 +821,12 @@ export default function RodadaPage() {
                 </p>
                 {polls.map((poll: any) => {
                   const isCraque = poll.type === 'craque'
+                  const isParedao = poll.type === 'paredao'
                   const cronometro = formatCronometro(poll.closes_at)
                   const encerrada = !cronometro || poll.is_closed
                   const jaVotou = !!meuVoto[poll.id]
-                  const cor = isCraque ? '#f59e0b' : '#64748b'
-                  const bg = isCraque ? '#fef9c3' : '#f1f5f9'
+                  const cor = isCraque ? '#f59e0b' : isParedao ? '#0891b2' : '#64748b'
+                  const bg = isCraque ? '#fef9c3' : isParedao ? '#e0f2fe' : '#f1f5f9'
 
                   // Conta votos por opção
                   const contagemVotos: Record<string, number> = {}
@@ -837,10 +838,10 @@ export default function RodadaPage() {
                       <div style={{ padding: '0.875rem 1rem', background: `linear-gradient(135deg, ${cor}, ${cor}cc)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div>
                           <p style={{ color: 'white', fontWeight: 700, fontSize: '0.95rem', margin: 0 }}>
-                            {isCraque ? '🏆 Craque da Rodada' : '💩 Bola Murcha'}
+                            {isCraque ? '🏆 Craque da Rodada' : isParedao ? '🧤 Paredão da Rodada' : '💩 Bola Murcha'}
                           </p>
                           <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.75rem', margin: '2px 0 0', fontWeight: 500 }}>
-                            {isCraque ? 'Quem foi o melhor?' : 'Quem decepcionou?'}
+                            {isCraque ? 'Quem foi o melhor?' : isParedao ? 'Melhor goleiro?' : 'Quem decepcionou?'}
                           </p>
                         </div>
                         {/* Cronômetro */}
@@ -1099,7 +1100,7 @@ export default function RodadaPage() {
             {/* Botão gerar cards — só após todas as enquetes encerradas */}
             {(() => {
               const enquetesAbertas = polls
-                .filter((p: any) => p.type === 'craque' || p.type === 'bola_murcha')
+                .filter((p: any) => p.type === 'craque' || p.type === 'bola_murcha' || p.type === 'paredao')
                 .some((p: any) => formatCronometro(p.closes_at) !== null && !p.is_closed)
 
               if (!isFinished || jogos.length === 0) return null

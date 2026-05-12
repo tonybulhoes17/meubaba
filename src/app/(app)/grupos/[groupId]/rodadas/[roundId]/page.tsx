@@ -329,13 +329,18 @@ export default function RodadaPage() {
 
     await supabase.from('rounds').update({ status: 'finished', finished_at: agora }).eq('id', roundId)
 
-    // Busca quais jogadores são goleiros nesta rodada
+    // Busca times e goleiros desta rodada diretamente do banco
+    const { data: timesRodada } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('round_id', roundId)
+
+    const teamIds = timesRodada?.map((t: any) => t.id) ?? []
+
     const { data: teamPlayersData } = await supabase
       .from('team_players')
-      .select('user_id, is_goalkeeper')
-      .in('team_id', (
-        await supabase.from('teams').select('id').eq('round_id', roundId)
-      ).data?.map((t: any) => t.id) ?? [])
+      .select('user_id, is_goalkeeper, profile:profiles(full_name)')
+      .in('team_id', teamIds)
 
     const goleirosIds = new Set(
       (teamPlayersData ?? [])
@@ -349,8 +354,13 @@ export default function RodadaPage() {
     // Membros sem goleiros — para Craque e Bola Murcha
     const membrosLineField = checkedInMembers.filter(m => !goleirosIds.has(m.user_id))
 
-    // Apenas goleiros — para Paredão
-    const membrosGoleiros = checkedInMembers.filter(m => goleirosIds.has(m.user_id))
+    // Goleiros: busca diretamente do team_players (independente do check-in)
+    const membrosGoleiros = (teamPlayersData ?? [])
+      .filter((tp: any) => tp.is_goalkeeper && tp.user_id)
+      .map((tp: any) => ({
+        user_id: tp.user_id,
+        full_name: (tp.profile as any)?.full_name ?? 'Goleiro',
+      }))
 
     // Enquetes Craque e Bola Murcha (sem goleiros)
     if (membrosLineField.length > 0) {
@@ -400,7 +410,7 @@ export default function RodadaPage() {
 
       if (pollParedao) {
         await supabase.from('poll_options').insert(
-          membrosGoleiros.map(m => ({
+          membrosGoleiros.map((m: any) => ({
             poll_id: pollParedao.id,
             user_id: m.user_id,
             label: m.full_name,

@@ -85,7 +85,7 @@ export default function CardsPage() {
 
     const pollCraque = polls?.find((p: any) => p.type === 'craque')
     const pollBolaMurcha = polls?.find((p: any) => p.type === 'bola_murcha')
-    const pollParedao = pollsParedao?.[0] ?? null
+    const pollParedao = paredaoData?.[0] ?? null
 
     // Eventos (gols e assistências)
     const { data: eventos } = await supabase

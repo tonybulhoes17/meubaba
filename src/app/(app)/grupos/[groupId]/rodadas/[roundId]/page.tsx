@@ -14,6 +14,7 @@ interface Membro {
   user_id: string
   full_name: string
   checked_in: boolean
+  photo_url?: string | null
   status: string // resposta antecipada
   is_guest: false
   attendance_id?: string
@@ -92,7 +93,7 @@ export default function RodadaPage() {
     // Busca TODOS os membros do grupo em ordem alfabética
     const { data: todosMemb } = await supabase
       .from('group_members')
-      .select('user_id, profile:profiles(full_name)')
+      .select('user_id, profile:profiles(full_name, photo_url)')
       .eq('group_id', groupId)
       .eq('is_active', true)
       .order('user_id')
@@ -110,6 +111,7 @@ export default function RodadaPage() {
         return {
           user_id: m.user_id,
           full_name: m.profile?.full_name ?? 'Jogador',
+          photo_url: m.profile?.photo_url ?? null,
           checked_in: att?.checked_in ?? false,
           status: att?.status ?? 'pending',
           is_guest: false as const,

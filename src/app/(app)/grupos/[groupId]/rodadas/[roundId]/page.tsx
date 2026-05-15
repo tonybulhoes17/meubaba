@@ -587,6 +587,45 @@ export default function RodadaPage() {
             </div>
             )}
 
+            {/* Lista de confirmados — visível para todos os membros */}
+            {!isAdmin && !isFinished && (() => {
+              const confirmados = membros
+                .filter(m => m.rsvp === 'going')
+                .sort((a: any, b: any) => {
+                  const ta = a.rsvp_at ? new Date(a.rsvp_at).getTime() : 0
+                  const tb = b.rsvp_at ? new Date(b.rsvp_at).getTime() : 0
+                  return ta - tb
+                })
+              if (confirmados.length === 0) return null
+              return (
+                <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f0fdf4', borderBottom: '1px solid #dcfce7' }}>
+                    <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#16a34a', margin: 0 }}>
+                      ✅ Confirmados antecipado ({confirmados.length})
+                    </p>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: '0.75rem', padding: '0.875rem 1rem' }}>
+                    {confirmados.map((m: any) => {
+                      const nome = m.full_name ?? 'Jogador'
+                      const initials = nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
+                      return (
+                        <div key={m.user_id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                          <div style={{ width: '2.75rem', height: '2.75rem', borderRadius: '9999px', backgroundColor: '#dcfce7', border: '2px solid #16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                            {m.photo_url
+                              ? <img src={m.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#16a34a' }}>{initials}</span>}
+                          </div>
+                          <p style={{ fontSize: '0.62rem', fontWeight: 600, color: '#475569', margin: 0, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+                            {nome.split(' ')[0]}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* CHECK-IN ADMIN */}
             {isAdmin && !isFinished && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

@@ -774,32 +774,64 @@ export default function RodadaPage() {
               </div>
             )}
 
-            {/* Lista de presentes (visão de jogador, só quando não finalizada) */}
-            {!isAdmin && !isFinished && checkedInCount > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100">
-                  <p className="text-sm font-bold text-gray-700">✅ Presentes ({checkedInCount})</p>
+            {/* Lista de presença — visão do jogador não-admin */}
+            {!isAdmin && !isFinished && (() => {
+              const presentes = membros.filter(m => m.checked_in)
+              const confirmados = membros.filter(m => !m.checked_in && m.status === 'confirmed')
+              const convidadosPresentes = convidados.filter(c => c.checked_in)
+              const total = presentes.length + confirmados.length + convidadosPresentes.length
+              if (total === 0) return null
+              return (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  {/* Presentes no dia */}
+                  {(presentes.length > 0 || convidadosPresentes.length > 0) && (
+                    <>
+                      <div className="px-4 py-3 border-b border-gray-100 bg-green-50">
+                        <p className="text-sm font-bold text-green-700">✅ Presentes no dia ({presentes.length + convidadosPresentes.length})</p>
+                      </div>
+                      {presentes.map(m => (
+                        <div key={m.user_id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                          <div style={{ width: '2rem', height: '2rem', borderRadius: '9999px', backgroundColor: '#dcfce7', border: '2px solid #16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                            {(m as any).photo_url
+                              ? <img src={(m as any).photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#16a34a' }}>{m.full_name[0]}</span>}
+                          </div>
+                          <p className="text-sm font-medium text-gray-700">{m.full_name}</p>
+                        </div>
+                      ))}
+                      {convidadosPresentes.map(c => (
+                        <div key={c.attendance_id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-500 flex-shrink-0">
+                            {c.guest_name[0]}
+                          </div>
+                          <p className="text-sm font-medium text-gray-700">{c.guest_name}
+                            <span className="ml-1 text-xs text-blue-400">(convidado)</span>
+                          </p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {/* Confirmados antecipados ainda não presentes */}
+                  {confirmados.length > 0 && (
+                    <>
+                      <div className="px-4 py-3 border-b border-gray-100 bg-blue-50">
+                        <p className="text-sm font-bold text-blue-700">🗓️ Confirmados antecipado ({confirmados.length})</p>
+                      </div>
+                      {confirmados.map(m => (
+                        <div key={m.user_id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                          <div style={{ width: '2rem', height: '2rem', borderRadius: '9999px', backgroundColor: '#dbeafe', border: '2px solid #2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                            {(m as any).photo_url
+                              ? <img src={(m as any).photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb' }}>{m.full_name[0]}</span>}
+                          </div>
+                          <p className="text-sm font-medium text-gray-700">{m.full_name}</p>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
-                {membros.filter(m => m.checked_in).map(m => (
-                  <div key={m.user_id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                    <div className="w-7 h-7 bg-green-100 rounded-full flex items-center justify-center text-xs font-bold text-green-600">
-                      {m.full_name[0]}
-                    </div>
-                    <p className="text-sm font-medium text-gray-700">{m.full_name}</p>
-                  </div>
-                ))}
-                {convidados.filter(c => c.checked_in).map(c => (
-                  <div key={c.attendance_id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                    <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-500">
-                      {c.guest_name[0]}
-                    </div>
-                    <p className="text-sm font-medium text-gray-700">{c.guest_name}
-                      <span className="ml-1 text-xs text-blue-400">(convidado)</span>
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+              )
+            })()}
 
             {/* Banner de notas */}
             {isFinished && (

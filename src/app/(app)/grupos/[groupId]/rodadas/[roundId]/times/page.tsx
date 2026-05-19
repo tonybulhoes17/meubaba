@@ -79,7 +79,7 @@ export default function TimesPage() {
 
     const { data: timesDB } = await supabase
       .from('teams')
-      .select('*, team_players(user_id, attendance_id)')
+      .select('*, team_players(user_id, attendance_id, is_goalkeeper)')
       .eq('round_id', roundId)
 
     if (timesDB && timesDB.length > 0) {
@@ -94,6 +94,19 @@ export default function TimesPage() {
         ),
       }))
       setTimes(timesFormatados)
+
+      // Popula o estado goleiros a partir do banco
+      const goleirosCarregados: Record<string, boolean> = {}
+      timesDB.forEach((t: any) => {
+        t.team_players.forEach((tp: any) => {
+          if (tp.is_goalkeeper) {
+            const key = tp.user_id ?? `guest_${tp.attendance_id}`
+            goleirosCarregados[key] = true
+          }
+        })
+      })
+      setGoleiros(goleirosCarregados)
+
       const emTime = timesDB.flatMap((t: any) => [
         ...t.team_players.filter((tp: any) => tp.user_id).map((tp: any) => tp.user_id),
         ...t.team_players.filter((tp: any) => !tp.user_id && tp.attendance_id).map((tp: any) => `guest_${tp.attendance_id}`),
@@ -154,27 +167,83 @@ export default function TimesPage() {
     }
 
     setSaving(true)
-    const { data: antigos } = await supabase.from('teams').select('id').eq('round_id', roundId)
-    if (antigos && antigos.length > 0) {
-      await supabase.from('team_players').delete().in('team_id', antigos.map((t: any) => t.id))
-      await supabase.from('teams').delete().eq('round_id', roundId)
-    }
-    for (const time of times) {
-      if (time.jogadores.length === 0) continue
-      const { data: novoTime } = await supabase
-        .from('teams').insert({ round_id: roundId, name: time.name, color: time.color }).select().single()
-      if (novoTime) {
-        await supabase.from('team_players').insert(
-          time.jogadores.map(j => ({
-            team_id: novoTime.id,
-            user_id: j.user_id,
-            attendance_id: j.is_guest ? j.attendance_id : null,
-            is_guest: j.is_guest,
-            is_goalkeeper: goleiros[j.key] ?? false,
-          }))
-        )
+
+    // Verifica se já existem jogos lançados para esta rodada
+    const { data: jogosExistentes } = await supabase
+      .from('matches')
+      .select('id')
+      .eq('round_id', roundId)
+      .limit(1)
+
+    const temJogos = (jogosExistentes ?? []).length > 0
+
+    if (temJogos) {
+      // ── Modo seguro: já há jogos lançados — preserva teams/matches, só atualiza team_players ──
+      const { data: antigos } = await supabase
+        .from('teams').select('id, name, color').eq('round_id', roundId)
+      const antigosMap = Object.fromEntries((antigos ?? []).map((t: any) => [t.id, t]))
+
+      for (const time of times) {
+        if (time.jogadores.length === 0) continue
+        const teamId = time.id
+
+        if (teamId && antigosMap[teamId]) {
+          // Time já existe no banco: atualiza nome/cor e recria só os jogadores
+          await supabase.from('teams')
+            .update({ name: time.name, color: time.color })
+            .eq('id', teamId)
+          await supabase.from('team_players').delete().eq('team_id', teamId)
+          await supabase.from('team_players').insert(
+            time.jogadores.map(j => ({
+              team_id: teamId,
+              user_id: j.user_id,
+              attendance_id: j.is_guest ? j.attendance_id : null,
+              is_guest: j.is_guest,
+              is_goalkeeper: goleiros[j.key] ?? false,
+            }))
+          )
+        } else {
+          // Time novo (sem id): insere sem apagar os outros
+          const { data: novoTime } = await supabase
+            .from('teams').insert({ round_id: roundId, name: time.name, color: time.color }).select().single()
+          if (novoTime) {
+            await supabase.from('team_players').insert(
+              time.jogadores.map(j => ({
+                team_id: novoTime.id,
+                user_id: j.user_id,
+                attendance_id: j.is_guest ? j.attendance_id : null,
+                is_guest: j.is_guest,
+                is_goalkeeper: goleiros[j.key] ?? false,
+              }))
+            )
+          }
+        }
+      }
+    } else {
+      // ── Modo normal: sem jogos lançados — pode recriar tudo sem risco ──
+      const { data: antigos } = await supabase.from('teams').select('id').eq('round_id', roundId)
+      if (antigos && antigos.length > 0) {
+        await supabase.from('team_players').delete().in('team_id', antigos.map((t: any) => t.id))
+        await supabase.from('teams').delete().eq('round_id', roundId)
+      }
+      for (const time of times) {
+        if (time.jogadores.length === 0) continue
+        const { data: novoTime } = await supabase
+          .from('teams').insert({ round_id: roundId, name: time.name, color: time.color }).select().single()
+        if (novoTime) {
+          await supabase.from('team_players').insert(
+            time.jogadores.map(j => ({
+              team_id: novoTime.id,
+              user_id: j.user_id,
+              attendance_id: j.is_guest ? j.attendance_id : null,
+              is_guest: j.is_guest,
+              is_goalkeeper: goleiros[j.key] ?? false,
+            }))
+          )
+        }
       }
     }
+
     setSaving(false)
     router.push(`/grupos/${groupId}/rodadas/${roundId}`)
   }

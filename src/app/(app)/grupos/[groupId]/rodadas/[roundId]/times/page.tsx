@@ -181,28 +181,36 @@ export default function TimesPage() {
       // ── Modo seguro: já há jogos lançados — preserva teams/matches, só atualiza team_players ──
       const { data: antigos } = await supabase
         .from('teams').select('id, name, color').eq('round_id', roundId)
+      const antigosIds = (antigos ?? []).map((t: any) => t.id)
       const antigosMap = Object.fromEntries((antigos ?? []).map((t: any) => [t.id, t]))
 
+      // Limpa TODOS os team_players dos times existentes de uma vez
+      // (garante que times esvaziados pelo admin também sejam limpos)
+      if (antigosIds.length > 0) {
+        await supabase.from('team_players').delete().in('team_id', antigosIds)
+      }
+
       for (const time of times) {
-        if (time.jogadores.length === 0) continue
         const teamId = time.id
 
         if (teamId && antigosMap[teamId]) {
-          // Time já existe no banco: atualiza nome/cor e recria só os jogadores
+          // Time já existe no banco: atualiza nome/cor
           await supabase.from('teams')
             .update({ name: time.name, color: time.color })
             .eq('id', teamId)
-          await supabase.from('team_players').delete().eq('team_id', teamId)
-          await supabase.from('team_players').insert(
-            time.jogadores.map(j => ({
-              team_id: teamId,
-              user_id: j.user_id,
-              attendance_id: j.is_guest ? j.attendance_id : null,
-              is_guest: j.is_guest,
-              is_goalkeeper: goleiros[j.key] ?? false,
-            }))
-          )
-        } else {
+          // Reinsere jogadores (pode ser zero — time foi esvaziado, tudo bem)
+          if (time.jogadores.length > 0) {
+            await supabase.from('team_players').insert(
+              time.jogadores.map(j => ({
+                team_id: teamId,
+                user_id: j.user_id,
+                attendance_id: j.is_guest ? j.attendance_id : null,
+                is_guest: j.is_guest,
+                is_goalkeeper: goleiros[j.key] ?? false,
+              }))
+            )
+          }
+        } else if (time.jogadores.length > 0) {
           // Time novo (sem id): insere sem apagar os outros
           const { data: novoTime } = await supabase
             .from('teams').insert({ round_id: roundId, name: time.name, color: time.color }).select().single()

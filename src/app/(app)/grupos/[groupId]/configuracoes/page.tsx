@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Save, Loader2, Copy, Check, RefreshCw, Trash2, Shield, UserMinus, AlertTriangle, UserPlus } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Copy, Check, RefreshCw, Trash2, Shield, UserMinus, AlertTriangle, UserPlus, DollarSign } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Membro {
@@ -15,7 +15,7 @@ interface Membro {
   joined_at: string
 }
 
-type Secao = 'geral' | 'membros' | 'danger'
+type Secao = 'geral' | 'financeiro' | 'membros' | 'danger'
 
 export default function ConfiguracoesPage() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -55,6 +55,14 @@ export default function ConfiguracoesPage() {
   const [erroCadastro, setErroCadastro] = useState<string | null>(null)
   const [cadastroOk, setCadastroOk] = useState(false)
 
+  // Financeiro
+  const [finFee, setFinFee] = useState('100.00')
+  const [finDueDay, setFinDueDay] = useState('1')
+  const [finPixKey, setFinPixKey] = useState('')
+  const [savingFin, setSavingFin] = useState(false)
+  const [savedFin, setSavedFin] = useState(false)
+  const [finConfigId, setFinConfigId] = useState<string | null>(null)
+
   useEffect(() => { fetchData() }, [groupId])
 
   async function fetchData() {
@@ -85,6 +93,19 @@ export default function ConfiguracoesPage() {
 
     // Membros
     await fetchMembros()
+
+    // Config financeira
+    const { data: finConfig } = await supabase
+      .from('group_finance_config')
+      .select('*')
+      .eq('group_id', groupId)
+      .single()
+    if (finConfig) {
+      setFinConfigId(finConfig.id)
+      setFinFee(finConfig.monthly_fee?.toString() ?? '100.00')
+      setFinDueDay(finConfig.due_day?.toString() ?? '1')
+      setFinPixKey(finConfig.pix_key ?? '')
+    }
 
     setLoading(false)
   }
@@ -211,6 +232,77 @@ export default function ConfiguracoesPage() {
     setCadastrandoMembro(false)
   }
 
+  async function salvarFinanceiro() {
+    const fee = parseFloat(finFee.replace(',', '.'))
+    const day = parseInt(finDueDay)
+    if (isNaN(fee) || fee <= 0) { alert('Valor da mensalidade inválido.'); return }
+    if (isNaN(day) || day < 1 || day > 28) { alert('Dia de vencimento deve ser entre 1 e 28.'); return }
+    setSavingFin(true)
+
+    const isNovo = !finConfigId
+    const payload = {
+      group_id: groupId,
+      monthly_fee: fee,
+      due_day: day,
+      pix_key: finPixKey.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+
+    let configId = finConfigId
+    if (finConfigId) {
+      await supabase.from('group_finance_config').update(payload).eq('id', finConfigId)
+    } else {
+      const { data } = await supabase.from('group_finance_config').insert(payload).select().single()
+      if (data) { configId = data.id; setFinConfigId(data.id) }
+    }
+
+    // Parte 2: primeira configuração → marca todos os membros ativos como adimplentes
+    // do mês de Jan do ano corrente até o mês atual (status 'manual')
+    if (isNovo) {
+      const { data: membrosAtivos } = await supabase
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', groupId)
+        .eq('is_active', true)
+
+      if (membrosAtivos && membrosAtivos.length > 0) {
+        const now = new Date()
+        const curYear = now.getFullYear()
+        const curMonth = now.getMonth() + 1
+
+        // Gera todos os meses de Jan/ano_corrente até mês atual
+        const meses: string[] = []
+        for (let m = 1; m <= curMonth; m++) {
+          meses.push(`${curYear}-${String(m).padStart(2, '0')}`)
+        }
+
+        const rows: any[] = []
+        for (const mem of membrosAtivos) {
+          for (const mes of meses) {
+            rows.push({
+              group_id: groupId,
+              user_id: mem.user_id,
+              month: mes,
+              status: 'manual',
+              submission_id: null,
+              updated_at: new Date().toISOString(),
+            })
+          }
+        }
+
+        // Insere em lotes de 50
+        for (let i = 0; i < rows.length; i += 50) {
+          await supabase.from('member_payment_status')
+            .upsert(rows.slice(i, i + 50), { onConflict: 'group_id,user_id,month' })
+        }
+      }
+    }
+
+    setSavingFin(false)
+    setSavedFin(true)
+    setTimeout(() => setSavedFin(false), 2000)
+  }
+
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
   }
@@ -243,6 +335,7 @@ export default function ConfiguracoesPage() {
         <div style={{ maxWidth: '640px', margin: '0.875rem auto 0', display: 'flex', gap: '0.25rem', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '0.75rem', padding: '3px' }}>
           {([
             { key: 'geral', label: '🏠 Geral' },
+            { key: 'financeiro', label: '💰 Financeiro' },
             { key: 'membros', label: `👥 Membros (${membros.length})` },
             { key: 'danger', label: '⚠️ Avançado' },
           ] as { key: Secao; label: string }[]).map(s => (
@@ -469,6 +562,50 @@ export default function ConfiguracoesPage() {
                   )}
                 </div>
               ))}
+            </div>
+          </>
+        )}
+
+        {/* ========== SEÇÃO FINANCEIRO ========== */}
+        {secao === 'financeiro' && (
+          <>
+            <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <DollarSign size={18} color="#16a34a" />
+                <p style={{ fontSize: '0.875rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Configurações de Mensalidade</p>
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '0.375rem' }}>Valor da mensalidade (R$)</label>
+                <input type="number" min="0" step="0.01" value={finFee} onChange={e => setFinFee(e.target.value)} placeholder="100.00"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1.5px solid #e2e8f0', borderRadius: '0.75rem', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' as const }} />
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '0.375rem' }}>Dia de vencimento (1 a 28)</label>
+                <input type="number" min="1" max="28" value={finDueDay} onChange={e => setFinDueDay(e.target.value)} placeholder="1"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1.5px solid #e2e8f0', borderRadius: '0.75rem', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' as const }} />
+                <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '0.375rem 0 0' }}>Todo mês, após esse dia, membros sem pagamento ficam inadimplentes.</p>
+              </div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '0.375rem' }}>Chave PIX para recebimento</label>
+                <input type="text" value={finPixKey} onChange={e => setFinPixKey(e.target.value)} placeholder="CPF, e-mail, telefone ou chave aleatória"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', border: '1.5px solid #e2e8f0', borderRadius: '0.75rem', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' as const }} />
+                <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '0.375rem 0 0' }}>Exibida com QR Code para os membros na hora do pagamento.</p>
+              </div>
+
+              <button onClick={salvarFinanceiro} disabled={savingFin}
+                style={{ width: '100%', backgroundColor: savedFin ? '#dcfce7' : '#16a34a', color: savedFin ? '#15803d' : 'white', border: 'none', borderRadius: '0.875rem', padding: '0.875rem', fontWeight: 700, fontSize: '0.9rem', cursor: savingFin ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'all 0.2s' }}>
+                {savingFin ? <Loader2 size={16} className="animate-spin" /> : savedFin ? <Check size={16} /> : <DollarSign size={16} />}
+                {savingFin ? 'Salvando...' : savedFin ? 'Salvo!' : 'Salvar configurações financeiras'}
+              </button>
+            </div>
+
+            <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '1rem', padding: '1rem' }}>
+              <p style={{ fontSize: '0.78rem', color: '#15803d', margin: 0, lineHeight: 1.6 }}>
+                💡 <strong>Primeira configuração:</strong> ao salvar pela primeira vez, todos os membros ativos serão marcados automaticamente como adimplentes do mês de Janeiro até o mês atual.
+              </p>
             </div>
           </>
         )}

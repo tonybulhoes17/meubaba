@@ -39,6 +39,7 @@ export default function GrupoDashboard() {
   const [loadingMembros, setLoadingMembros] = useState(false)
   const [membroSelecionado, setMembroSelecionado] = useState<any | null>(null)
   const [statsMembro, setStatsMembro] = useState<{ gols: number; presencas: number; media_nota: number } | null>(null)
+  const [inadimplente, setInadimplente] = useState(false)
 
   useEffect(() => { fetchData() }, [groupId])
 
@@ -347,6 +348,25 @@ export default function GrupoDashboard() {
     }
 
     setLoading(false)
+
+    // Verifica inadimplência do mês atual
+    const curMes = (() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    })()
+    const { data: finConfig } = await supabase
+      .from('group_finance_config').select('id').eq('group_id', groupId).single()
+    if (finConfig) {
+      const { data: meuStatus } = await supabase
+        .from('member_payment_status')
+        .select('status')
+        .eq('group_id', groupId)
+        .eq('user_id', user.id)
+        .eq('month', curMes)
+        .single()
+      const pago = meuStatus?.status === 'paid' || meuStatus?.status === 'manual'
+      setInadimplente(!pago)
+    }
   }
 
   async function handleCopiarCodigo() {
@@ -375,6 +395,7 @@ export default function GrupoDashboard() {
     { icon: '🏆', label: 'Estatísticas', desc: 'Rankings e artilharia', href: `/grupos/${groupId}/estatisticas` },
     { icon: '🗳️', label: 'Enquetes', desc: 'Votações e enquetes', href: `/grupos/${groupId}/enquetes` },
     { icon: '🏁', label: 'Histórico', desc: 'Temporadas encerradas', href: `/grupos/${groupId}/historico` },
+    { icon: '💰', label: 'Financeiro', desc: 'Mensalidades e pagamentos', href: `/grupos/${groupId}/financeiro` },
     { icon: '💬', label: 'Chat', desc: 'Conversa do grupo', href: `/grupos/${groupId}/chat` },
   ]
 
@@ -552,6 +573,26 @@ export default function GrupoDashboard() {
               </button>
             )}
           </div>
+        )}
+
+        {/* Banner inadimplência */}
+        {inadimplente && (
+          <button
+            onClick={() => router.push(`/grupos/${groupId}/financeiro`)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.875rem', backgroundColor: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer', textAlign: 'left' as const }}>
+            <div style={{ width: '2.5rem', height: '2.5rem', backgroundColor: '#fee2e2', borderRadius: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1.25rem' }}>
+              ⚠️
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: '#b91c1c', fontSize: '0.82rem', fontWeight: 800, margin: '0 0 2px' }}>
+                Mensalidade em aberto
+              </p>
+              <p style={{ color: '#ef4444', fontSize: '0.72rem', fontWeight: 500, margin: 0 }}>
+                Você está inadimplente. Toque para regularizar.
+              </p>
+            </div>
+            <span style={{ color: '#fca5a5', fontSize: '1.25rem', flexShrink: 0 }}>›</span>
+          </button>
         )}
 
         {/* Último Craque da Rodada */}

@@ -220,7 +220,7 @@ export default function FinanceiroPage() {
     // Pendentes — busca submissões e perfis separadamente
     const { data: subs, error: subsError } = await supabase
       .from('payment_submissions')
-      .select('id, user_id, months, period_type, amount, status, created_at')
+      .select('id, user_id, months, period_type, amount, status, rejection_reason, created_at')
       .eq('group_id', groupId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
@@ -237,6 +237,7 @@ export default function FinanceiroPage() {
         ...s,
         full_name: nome,
         photo_url: prof?.photo_url ?? null,
+        rejection_reason: s.rejection_reason ?? null,
         initials: nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase(),
       } as Submission)
     }

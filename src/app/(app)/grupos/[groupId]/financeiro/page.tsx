@@ -571,7 +571,7 @@ export default function FinanceiroPage() {
                     </div>
                   ) : pendentes.map(sub => (
                     <button key={sub.id} onClick={() => router.push(`/grupos/${groupId}/financeiro/${sub.id}`)}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc', background: 'none', border: 'none', borderBottom: '1px solid #f8fafc', cursor: 'pointer', textAlign: 'left' as const }}>
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const }}>
                       <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
                         {sub.photo_url ? <img src={sub.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>{(sub as any).initials}</span>}
                       </div>
@@ -667,7 +667,7 @@ export default function FinanceiroPage() {
                     const c = statusColor(m.currentStatus)
                     return (
                       <button key={m.user_id} onClick={async () => { setSelectedMember(m); setAdminTab('membros'); await fetchMemberMonths(m.user_id) }}
-                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc', background: 'none', border: 'none', borderBottom: '1px solid #f8fafc', cursor: 'pointer', textAlign: 'left' as const }}>
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const }}>
                         <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
                           {m.photo_url ? <img src={m.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#b91c1c' }}>{m.initials}</span>}
                         </div>

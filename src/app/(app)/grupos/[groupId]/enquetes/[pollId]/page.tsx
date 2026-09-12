@@ -223,10 +223,8 @@ export default function PollPage() {
             const initials = op.label.split(' ').map(n => n[0]).slice(0, 2).join('')
             const vencedor = mostrarResultado && op.votos === Math.max(...poll.opcoes.map(o => o.votos ?? 0))
 
+            const ehMeuProprio = op.user_id === myUserId
             return (
-              {(() => {
-                const ehMeuProprio = op.user_id === myUserId
-                return (
               <button key={op.id} onClick={() => toggleSelecao(op.id)} disabled={jaVotou || encerrada || ehMeuProprio}
                 title={ehMeuProprio ? 'Você não pode votar em si mesmo' : undefined}
                 style={{
@@ -275,8 +273,6 @@ export default function PollPage() {
                   </div>
                 )}
               </button>
-                )
-              })()}
             )
           })}
         </div>

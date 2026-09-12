@@ -101,9 +101,15 @@ export default function PollPage() {
 
   async function confirmarVoto() {
     if (selecionados.length === 0) return
+    // Remove qualquer opção que corresponda ao próprio usuário (segurança extra)
+    const opcoesValidas = selecionados.filter(optId => {
+      const opcao = poll?.opcoes.find(o => o.id === optId)
+      return opcao?.user_id !== myUserId
+    })
+    if (opcoesValidas.length === 0) return
     setVoting(true)
     const { error } = await supabase.from('poll_votes').insert(
-      selecionados.map(optId => ({ poll_id: pollId, option_id: optId, voter_id: myUserId }))
+      opcoesValidas.map(optId => ({ poll_id: pollId, option_id: optId, voter_id: myUserId }))
     )
     if (error) { alert(`Erro: ${error.message}`); setVoting(false); return }
     setJaVotou(true)
@@ -114,6 +120,9 @@ export default function PollPage() {
 
   function toggleSelecao(optId: string) {
     if (jaVotou) return
+    // Impede votar em si mesmo
+    const opcao = poll?.opcoes.find(o => o.id === optId)
+    if (opcao?.user_id === myUserId) return
     if (poll?.is_multiple_choice) {
       setSelecionados(prev => prev.includes(optId) ? prev.filter(id => id !== optId) : [...prev, optId])
     } else {
@@ -215,13 +224,18 @@ export default function PollPage() {
             const vencedor = mostrarResultado && op.votos === Math.max(...poll.opcoes.map(o => o.votos ?? 0))
 
             return (
-              <button key={op.id} onClick={() => toggleSelecao(op.id)} disabled={jaVotou || encerrada}
+              {(() => {
+                const ehMeuProprio = op.user_id === myUserId
+                return (
+              <button key={op.id} onClick={() => toggleSelecao(op.id)} disabled={jaVotou || encerrada || ehMeuProprio}
+                title={ehMeuProprio ? 'Você não pode votar em si mesmo' : undefined}
                 style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem',
                   padding: '0.875rem 1rem', background: 'none', border: 'none',
                   borderBottom: i < poll.opcoes.length - 1 ? '1px solid #f8fafc' : 'none',
-                  cursor: jaVotou || encerrada ? 'default' : 'pointer',
-                  backgroundColor: selecionado ? '#f0fdf4' : foiVotadoPorMim ? '#f0fdf4' : vencedor ? '#fefce8' : 'white',
+                  cursor: jaVotou || encerrada || ehMeuProprio ? 'default' : 'pointer',
+                  backgroundColor: ehMeuProprio ? '#f8fafc' : selecionado ? '#f0fdf4' : foiVotadoPorMim ? '#f0fdf4' : vencedor ? '#fefce8' : 'white',
+                  opacity: ehMeuProprio ? 0.5 : 1,
                   position: 'relative', overflow: 'hidden', textAlign: 'left',
                 }}>
 
@@ -249,6 +263,7 @@ export default function PollPage() {
 
                   <p style={{ flex: 1, fontSize: '0.9rem', fontWeight: foiVotadoPorMim || vencedor ? 700 : 500, color: '#1e293b', margin: 0 }}>
                     {op.label} {vencedor && mostrarResultado && '🏆'}
+                    {op.user_id === myUserId && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>(você)</span>}
                   </p>
                 </div>
 
@@ -260,6 +275,8 @@ export default function PollPage() {
                   </div>
                 )}
               </button>
+                )
+              })()}
             )
           })}
         </div>

@@ -15,7 +15,7 @@ interface Membro {
   joined_at: string
 }
 
-type Secao = 'geral' | 'financeiro' | 'membros' | 'danger'
+type Secao = 'geral' | 'financeiro' | 'taticas' | 'membros' | 'danger'
 
 export default function ConfiguracoesPage() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -63,6 +63,37 @@ export default function ConfiguracoesPage() {
   const [savedFin, setSavedFin] = useState(false)
   const [finConfigId, setFinConfigId] = useState<string | null>(null)
 
+  // Táticas — pesos por posição
+  const POSICOES = ['goleiro','zagueiro','lateral','volante','meia','atacante'] as const
+  const CRITERIOS = [
+    { key: 'velocidade',     label: 'Vel' },
+    { key: 'forca_fisica',   label: 'Fís' },
+    { key: 'passe',          label: 'Pas' },
+    { key: 'chute',          label: 'Chu' },
+    { key: 'marcacao',       label: 'Mar' },
+    { key: 'drible',         label: 'Dri' },
+    { key: 'posicionamento', label: 'Pos' },
+    { key: 'resistencia',    label: 'Res' },
+    { key: 'jogo_aereo',     label: 'Aér' },
+  ] as const
+
+  type Posicao = typeof POSICOES[number]
+  type Criterio = typeof CRITERIOS[number]['key']
+  type PesoRow = Record<Criterio, number> & { posicao: Posicao; id?: string }
+
+  const defaultPesos = (): PesoRow[] => [
+    { posicao:'goleiro',  velocidade:1,forca_fisica:2,passe:1,chute:1,marcacao:1,drible:1,posicionamento:2,resistencia:2,jogo_aereo:1 },
+    { posicao:'zagueiro', velocidade:2,forca_fisica:3,passe:1,chute:1,marcacao:3,drible:1,posicionamento:3,resistencia:2,jogo_aereo:3 },
+    { posicao:'lateral',  velocidade:3,forca_fisica:2,passe:2,chute:1,marcacao:3,drible:2,posicionamento:2,resistencia:3,jogo_aereo:1 },
+    { posicao:'volante',  velocidade:2,forca_fisica:3,passe:3,chute:2,marcacao:3,drible:2,posicionamento:3,resistencia:3,jogo_aereo:2 },
+    { posicao:'meia',     velocidade:2,forca_fisica:1,passe:3,chute:2,marcacao:2,drible:3,posicionamento:3,resistencia:3,jogo_aereo:1 },
+    { posicao:'atacante', velocidade:3,forca_fisica:2,passe:1,chute:3,marcacao:1,drible:3,posicionamento:3,resistencia:2,jogo_aereo:2 },
+  ]
+
+  const [pesos, setPesos] = useState<PesoRow[]>(defaultPesos())
+  const [savingPesos, setSavingPesos] = useState(false)
+  const [savedPesos, setSavedPesos] = useState(false)
+
   useEffect(() => { fetchData() }, [groupId])
 
   async function fetchData() {
@@ -105,6 +136,27 @@ export default function ConfiguracoesPage() {
       setFinFee(finConfig.monthly_fee?.toString() ?? '100.00')
       setFinDueDay(finConfig.due_day?.toString() ?? '1')
       setFinPixKey(finConfig.pix_key ?? '')
+    }
+
+    // Pesos por posição
+    const { data: pesosDB } = await supabase
+      .from('position_weights')
+      .select('*')
+      .eq('group_id', groupId)
+    if (pesosDB && pesosDB.length > 0) {
+      setPesos(pesosDB.map((p: any) => ({
+        id: p.id,
+        posicao: p.posicao,
+        velocidade: p.velocidade,
+        forca_fisica: p.forca_fisica,
+        passe: p.passe,
+        chute: p.chute,
+        marcacao: p.marcacao,
+        drible: p.drible,
+        posicionamento: p.posicionamento,
+        resistencia: p.resistencia,
+        jogo_aereo: p.jogo_aereo,
+      })))
     }
 
     setLoading(false)
@@ -303,6 +355,35 @@ export default function ConfiguracoesPage() {
     setTimeout(() => setSavedFin(false), 2000)
   }
 
+  async function salvarPesos() {
+    setSavingPesos(true)
+    for (const peso of pesos) {
+      const payload = {
+        group_id: groupId,
+        posicao: peso.posicao,
+        velocidade: peso.velocidade,
+        forca_fisica: peso.forca_fisica,
+        passe: peso.passe,
+        chute: peso.chute,
+        marcacao: peso.marcacao,
+        drible: peso.drible,
+        posicionamento: peso.posicionamento,
+        resistencia: peso.resistencia,
+        jogo_aereo: peso.jogo_aereo,
+        updated_at: new Date().toISOString(),
+      }
+      await supabase.from('position_weights')
+        .upsert(payload, { onConflict: 'group_id,posicao' })
+    }
+    setSavingPesos(false)
+    setSavedPesos(true)
+    setTimeout(() => setSavedPesos(false), 2000)
+  }
+
+  function updatePeso(posicao: Posicao, criterio: Criterio, valor: number) {
+    setPesos(prev => prev.map(p => p.posicao === posicao ? { ...p, [criterio]: valor } : p))
+  }
+
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
   }
@@ -336,6 +417,7 @@ export default function ConfiguracoesPage() {
           {([
             { key: 'geral', label: '🏠 Geral' },
             { key: 'financeiro', label: '💰 Financeiro' },
+            { key: 'taticas', label: '⚽ Táticas' },
             { key: 'membros', label: `👥 Membros (${membros.length})` },
             { key: 'danger', label: '⚠️ Avançado' },
           ] as { key: Secao; label: string }[]).map(s => (
@@ -605,6 +687,73 @@ export default function ConfiguracoesPage() {
             <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '1rem', padding: '1rem' }}>
               <p style={{ fontSize: '0.78rem', color: '#15803d', margin: 0, lineHeight: 1.6 }}>
                 💡 <strong>Primeira configuração:</strong> ao salvar pela primeira vez, todos os membros ativos serão marcados automaticamente como adimplentes do mês de Janeiro até o mês atual.
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* ========== SEÇÃO TÁTICAS ========== */}
+        {secao === 'taticas' && (
+          <>
+            <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+              <p style={{ fontSize: '0.875rem', fontWeight: 700, color: '#1e293b', margin: '0 0 0.375rem' }}>⚖️ Pesos por posição</p>
+              <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '0 0 1rem', lineHeight: 1.5 }}>
+                Define a importância de cada critério para cada posição. <strong>1</strong> = baixo · <strong>2</strong> = médio · <strong>3</strong> = alto
+              </p>
+
+              <div style={{ overflowX: 'auto' as const }}>
+                <table style={{ borderCollapse: 'collapse' as const, width: '100%', minWidth: '520px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc' }}>
+                      <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left' as const, fontSize: '0.7rem', fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0', position: 'sticky' as const, left: 0, backgroundColor: '#f8fafc' }}>
+                        Posição
+                      </th>
+                      {CRITERIOS.map(c => (
+                        <th key={c.key} style={{ padding: '0.5rem 0.375rem', textAlign: 'center' as const, fontSize: '0.65rem', fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0', minWidth: '42px' }}>
+                          {c.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pesos.map((row, idx) => (
+                      <tr key={row.posicao} style={{ backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                        <td style={{ padding: '0.5rem 0.75rem', fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', borderBottom: '1px solid #f1f5f9', position: 'sticky' as const, left: 0, backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa', textTransform: 'capitalize' as const }}>
+                          {row.posicao}
+                        </td>
+                        {CRITERIOS.map(c => {
+                          const val = row[c.key as Criterio]
+                          const bgColor = val === 3 ? '#dcfce7' : val === 2 ? '#fef9c3' : '#fee2e2'
+                          const textColor = val === 3 ? '#15803d' : val === 2 ? '#854d0e' : '#b91c1c'
+                          return (
+                            <td key={c.key} style={{ padding: '0.375rem', textAlign: 'center' as const, borderBottom: '1px solid #f1f5f9' }}>
+                              <select
+                                value={val}
+                                onChange={e => updatePeso(row.posicao as Posicao, c.key as Criterio, Number(e.target.value))}
+                                style={{ width: '38px', padding: '3px 2px', border: `1.5px solid ${textColor}`, borderRadius: '0.375rem', backgroundColor: bgColor, color: textColor, fontWeight: 700, fontSize: '0.75rem', textAlign: 'center' as const, cursor: 'pointer', outline: 'none' }}>
+                                <option value={1}>1</option>
+                                <option value={2}>2</option>
+                                <option value={3}>3</option>
+                              </select>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <button onClick={salvarPesos} disabled={savingPesos}
+                style={{ width: '100%', marginTop: '1.25rem', backgroundColor: savedPesos ? '#dcfce7' : '#16a34a', color: savedPesos ? '#15803d' : 'white', border: 'none', borderRadius: '0.875rem', padding: '0.875rem', fontWeight: 700, fontSize: '0.9rem', cursor: savingPesos ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', transition: 'all 0.2s' }}>
+                {savingPesos ? <Loader2 size={16} className="animate-spin" /> : savedPesos ? <Check size={16} /> : null}
+                {savingPesos ? 'Salvando...' : savedPesos ? 'Salvo!' : 'Salvar pesos'}
+              </button>
+            </div>
+
+            <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '1rem', padding: '1rem' }}>
+              <p style={{ fontSize: '0.78rem', color: '#92400e', margin: 0, lineHeight: 1.6 }}>
+                💡 Esses pesos são usados na hora de montar os times equilibrados. Um jogador com nota alta em <strong>marcação</strong> terá score maior como <strong>zagueiro</strong> se o peso de marcação for 3. Os pesos padrão já estão configurados — edite só se quiser personalizar para o seu grupo.
               </p>
             </div>
           </>

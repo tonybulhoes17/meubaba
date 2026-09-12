@@ -73,6 +73,11 @@ export default function RodadaPage() {
   const [busca, setBusca] = useState('')
   const [novoConvidado, setNovoConvidado] = useState('')
   const [adicionandoConvidado, setAdicionandoConvidado] = useState(false)
+  const [convPos1, setConvPos1] = useState('')
+  const [convPos2, setConvPos2] = useState('')
+  const [convPos3, setConvPos3] = useState('')
+  const [convNota, setConvNota] = useState('3')
+  const [showConvidadoExtra, setShowConvidadoExtra] = useState(false)
 
   useEffect(() => { fetchData() }, [roundId])
 
@@ -283,6 +288,7 @@ export default function RodadaPage() {
   async function handleAdicionarConvidado() {
     if (!novoConvidado.trim()) return
     setAdicionandoConvidado(true)
+    const nota = parseFloat(convNota) || 3
     await supabase.from('round_attendance').insert({
       round_id: roundId,
       user_id: null,
@@ -290,8 +296,17 @@ export default function RodadaPage() {
       is_guest: true,
       guest_name: novoConvidado.trim(),
       checked_in: true,
+      guest_position_1: convPos1.trim() || null,
+      guest_position_2: convPos2.trim() || null,
+      guest_position_3: convPos3.trim() || null,
+      guest_avg_score: Math.min(5, Math.max(1, nota)),
     })
     setNovoConvidado('')
+    setConvPos1('')
+    setConvPos2('')
+    setConvPos3('')
+    setConvNota('3')
+    setShowConvidadoExtra(false)
     setAdicionandoConvidado(false)
     fetchData()
   }
@@ -752,7 +767,7 @@ export default function RodadaPage() {
 
                 {/* Adicionar convidado */}
                 <div className="border-t border-gray-100 p-3">
-                  <div className="flex gap-2">
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' }}>
                     <input
                       type="text"
                       value={novoConvidado}
@@ -760,16 +775,84 @@ export default function RodadaPage() {
                       onKeyDown={e => e.key === 'Enter' && handleAdicionarConvidado()}
                       placeholder="Nome do convidado..."
                       className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:border-blue-400"
+                      style={{ width: '100%', boxSizing: 'border-box' as const }}
                     />
-                    <button
-                      onClick={handleAdicionarConvidado}
-                      disabled={!novoConvidado.trim() || adicionandoConvidado}
-                      className="bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white px-3 py-2.5 rounded-xl transition-all flex items-center gap-1 text-sm font-semibold"
-                    >
-                      <UserPlus size={15} />
-                      Add
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {showConvidadoExtra ? (
+                        <>
+                          <button
+                            onClick={() => { setShowConvidadoExtra(false); setConvPos1(''); setConvPos2(''); setConvPos3(''); setConvNota('3') }}
+                            style={{ flex: 1, padding: '0.625rem', borderRadius: '0.75rem', border: '2px solid #e2e8f0', backgroundColor: '#f8fafc', color: '#64748b', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
+                          >
+                            ✕ Cancelar
+                          </button>
+                          <button
+                            onClick={handleAdicionarConvidado}
+                            disabled={adicionandoConvidado}
+                            style={{ flex: 1, padding: '0.625rem', borderRadius: '0.75rem', border: 'none', backgroundColor: '#16a34a', color: 'white', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}
+                          >
+                            <UserPlus size={15} />
+                            Confirmar
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => { if (novoConvidado.trim()) setShowConvidadoExtra(true) }}
+                          disabled={!novoConvidado.trim() || adicionandoConvidado}
+                          style={{ width: '100%', padding: '0.625rem', borderRadius: '0.75rem', border: 'none', backgroundColor: !novoConvidado.trim() || adicionandoConvidado ? '#94a3b8' : '#3b82f6', color: 'white', fontWeight: 700, fontSize: '0.78rem', cursor: !novoConvidado.trim() || adicionandoConvidado ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}
+                        >
+                          <UserPlus size={15} />
+                          Adicionar convidado
+                        </button>
+                      )}
+                    </div>
                   </div>
+
+                  {showConvidadoExtra && (
+                    <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '0.875rem', padding: '0.875rem', marginBottom: '0.5rem' }}>
+                      <p style={{ fontSize: '0.72rem', fontWeight: 700, color: '#15803d', margin: '0 0 0.625rem' }}>
+                        ⚽ Info para times equilibrados (opcional)
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                        {[
+                          ['Posição 1', convPos1, setConvPos1],
+                          ['Posição 2', convPos2, setConvPos2],
+                          ['Posição 3', convPos3, setConvPos3],
+                        ].map(([label, val, setter]: any) => (
+                          <div key={label} style={{ flex: 1, minWidth: '80px' }}>
+                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px', fontWeight: 600 }}>{label}</p>
+                            <select
+                              value={val}
+                              onChange={(e: any) => setter(e.target.value)}
+                              style={{ width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '0.5rem', fontSize: '0.75rem', backgroundColor: 'white', outline: 'none' }}
+                            >
+                              <option value="">—</option>
+                              <option value="goleiro">🧤 Goleiro</option>
+                              <option value="zagueiro">🛡️ Zagueiro</option>
+                              <option value="lateral">↔️ Lateral</option>
+                              <option value="volante">⚙️ Volante</option>
+                              <option value="meia">🎯 Meia</option>
+                              <option value="atacante">⚡ Atacante</option>
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 4px', fontWeight: 600 }}>Nota média (1 a 5)</p>
+                        <div style={{ display: 'flex', gap: '0.375rem' }}>
+                          {[1,2,3,4,5].map(n => (
+                            <button
+                              key={n}
+                              onClick={() => setConvNota(String(n))}
+                              style={{ flex: 1, padding: '6px', borderRadius: '0.5rem', border: `2px solid ${convNota === String(n) ? '#16a34a' : '#e2e8f0'}`, backgroundColor: convNota === String(n) ? '#dcfce7' : 'white', color: convNota === String(n) ? '#15803d' : '#94a3b8', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer' }}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1062,7 +1145,7 @@ export default function RodadaPage() {
                 )}
               </div>
             ) : (
-              <TimesDisplay roundId={roundId} />
+              <TimesDisplay roundId={roundId} groupId={groupId} />
             )}
           </>
         )}
@@ -1398,31 +1481,68 @@ export default function RodadaPage() {
 }
 
 // Componente auxiliar para exibir times
-function TimesDisplay({ roundId }: { roundId: string }) {
+function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }) {
   const supabase = createClient()
   const [times, setTimes] = useState<any[]>([])
-  // mapa: user_id -> nome de quem saiu (substituição)
   const [subMap, setSubMap] = useState<Record<string, string>>({})
+  const [scoreMap, setScoreMap] = useState<Record<string, number>>({})
+  const [timeCampo, setTimeCampo] = useState<any | null>(null)
 
   useEffect(() => {
     async function load() {
       const { data: timesData } = await supabase
         .from('teams')
-        .select('*, team_players(*, profile:profiles(full_name))')
+        .select('*, team_players(*, profile:profiles(full_name, photo_url, position_1), position_in_team)')
         .eq('round_id', roundId)
-      setTimes(timesData ?? [])
+      
+      // Busca nomes e posições dos convidados via attendance_id
+      const attIds = (timesData ?? []).flatMap((t: any) =>
+        (t.team_players ?? []).filter((tp: any) => tp.is_guest && tp.attendance_id).map((tp: any) => tp.attendance_id)
+      )
+      const guestMap: Record<string, { guest_name: string; guest_position_1: string | null }> = {}
+      if (attIds.length > 0) {
+        const { data: atts } = await supabase
+          .from('round_attendance')
+          .select('id, guest_name, guest_position_1')
+          .in('id', attIds)
+        ;(atts ?? []).forEach((a: any) => {
+          guestMap[a.id] = { guest_name: a.guest_name ?? 'Convidado', guest_position_1: a.guest_position_1 ?? null }
+        })
+      }
+      // Injeta dados do convidado no team_players
+      const timesComGuest = (timesData ?? []).map((t: any) => ({
+        ...t,
+        team_players: (t.team_players ?? []).map((tp: any) => {
+          if (!tp.is_guest) return tp
+          const g = guestMap[tp.attendance_id] ?? {}
+          return { ...tp, _guest_name: g.guest_name ?? 'Convidado', _guest_pos: g.guest_position_1 ?? null }
+        })
+      }))
+      setTimes(timesComGuest)
 
-      // Busca eventos de substituição da rodada para mostrar "entrou no lugar de X"
+      // Scores dos jogadores para calcular média do time
+      const userIds = (timesData ?? []).flatMap((t: any) =>
+        (t.team_players ?? []).filter((tp: any) => !tp.is_guest).map((tp: any) => tp.user_id)
+      ).filter(Boolean)
+      if (userIds.length > 0) {
+        const { data: scores } = await supabase
+          .from('player_scores').select('user_id, velocidade, forca_fisica, passe, chute, marcacao, drible, posicionamento, resistencia, jogo_aereo')
+          .eq('group_id', groupId).in('user_id', userIds)
+        const sm: Record<string, number> = {}
+        for (const s of scores ?? []) {
+          const vals = [s.velocidade, s.forca_fisica, s.passe, s.chute, s.marcacao, s.drible, s.posicionamento, s.resistencia, s.jogo_aereo]
+          sm[s.user_id] = Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length * 10) / 10
+        }
+        setScoreMap(sm)
+      }
+
+      // Substituições
       const { data: subs } = await supabase
-        .from('match_events')
-        .select('user_id, attendance_id, sub_out_name, is_guest, guest_name')
-        .eq('round_id', roundId)
-        .eq('event_type', 'substitution')
-
+        .from('match_events').select('user_id, attendance_id, sub_out_name, is_guest, guest_name')
+        .eq('round_id', roundId).eq('event_type', 'substitution')
       const map: Record<string, string> = {}
       for (const s of subs ?? []) {
         if (s.sub_out_name) {
-          // chave: user_id ou attendance_id para convidados
           const key = s.is_guest ? s.attendance_id : s.user_id
           if (key) map[key] = s.sub_out_name
         }
@@ -1432,41 +1552,150 @@ function TimesDisplay({ roundId }: { roundId: string }) {
     load()
   }, [roundId])
 
+  function mediaTime(time: any): number {
+    const players = (time.team_players ?? [])
+    if (players.length === 0) return 0
+    const soma = players.reduce((acc: number, tp: any) => {
+      return acc + (tp.is_guest ? 3 : (scoreMap[tp.user_id] ?? 3))
+    }, 0)
+    return Math.round(soma / players.length * 10) / 10
+  }
+
+  function scoreColor(v: number) {
+    if (v >= 4.5) return '#15803d'
+    if (v >= 3.5) return '#1d4ed8'
+    if (v >= 2.5) return '#854d0e'
+    return '#b91c1c'
+  }
+
+  const POSICOES_ORDEM = ['atacante','meia','volante','lateral','zagueiro','goleiro']
+
   return (
     <>
-      {times.map(time => (
-        <div key={time.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 flex items-center gap-2 border-b border-gray-50"
-            style={{ borderLeft: `4px solid ${time.color ?? '#16a34a'}` }}>
-            <p className="font-bold text-gray-800">{time.name}</p>
-            <span className="text-xs text-gray-400">({time.team_players?.length ?? 0} jogadores)</span>
-          </div>
-          {(time.team_players ?? []).map((tp: any) => {
-            const nome = tp.profile?.full_name ?? tp.guest_name ?? 'Jogador'
-            const chave = tp.is_guest ? tp.attendance_id : tp.user_id
-            const subOutName = subMap[chave]
-            return (
-              <div key={tp.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                  style={{ backgroundColor: subOutName ? '#7c3aed' : (time.color ?? '#16a34a') }}>
-                  {subOutName ? '🔄' : nome[0]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-700">
-                    {nome}
-                    {tp.is_guest && <span className="ml-1 text-xs text-blue-400">(convidado)</span>}
-                  </p>
-                  {subOutName && (
-                    <p className="text-xs text-purple-500 font-medium">
-                      🔄 entrou no lugar de {subOutName.split(' ')[0]}
-                    </p>
-                  )}
-                </div>
+      {times.map(time => {
+        const media = mediaTime(time)
+        const cor = time.color ?? '#16a34a'
+        return (
+          <div key={time.id} style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+            {/* Header */}
+            <div style={{ background: `linear-gradient(135deg, ${cor}, ${cor}cc)`, padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <p style={{ color: 'white', fontWeight: 800, fontSize: '0.95rem', margin: 0 }}>
+                  {time.name} <span style={{ fontSize: '0.75rem', opacity: 0.85 }}>⭐ {media.toFixed(1)}</span>
+                </p>
+                <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', margin: '2px 0 0' }}>
+                  {time.team_players?.length ?? 0} jogadores
+                </p>
               </div>
-            )
-          })}
-        </div>
-      ))}
+              <button onClick={() => setTimeCampo(time)}
+                style={{ padding: '5px 10px', borderRadius: '0.625rem', border: '1.5px solid rgba(255,255,255,0.5)', backgroundColor: 'rgba(255,255,255,0.15)', color: 'white', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                🏟️ Ver em campo
+              </button>
+            </div>
+
+            {/* Jogadores */}
+            {(time.team_players ?? []).map((tp: any) => {
+              const nome = tp.is_guest
+                ? (tp._guest_name ?? 'Convidado')
+                : (tp.profile?.full_name ?? 'Jogador')
+              const foto = tp.is_guest ? null : (tp.profile?.photo_url ?? null)
+              // Posição no time — usa position_in_team salvo no banco
+              const posNoTime = tp.is_goalkeeper ? 'goleiro'
+                : (tp.position_in_team ?? (tp.is_guest ? tp._guest_pos : tp.profile?.position_1) ?? null)
+              const initials = nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
+              const chave = tp.is_guest ? tp.attendance_id : tp.user_id
+              const subOutName = subMap[chave]
+              return (
+                <div key={tp.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 1rem', borderBottom: '1px solid #f8fafc' }}>
+                  <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: subOutName ? '#7c3aed22' : cor + '22', border: `2px solid ${subOutName ? '#7c3aed' : cor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                    {subOutName
+                      ? <span style={{ fontSize: '0.9rem' }}>🔄</span>
+                      : foto
+                        ? <img src={foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span style={{ fontSize: '0.65rem', fontWeight: 700, color: cor }}>{initials}</span>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                      {nome.split(' ')[0]}
+                      {tp.is_guest && <span style={{ marginLeft: '4px', fontSize: '0.7rem', color: '#3b82f6' }}>(convidado)</span>}
+                    </p>
+                    <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: '1px 0 0', textTransform: 'capitalize' as const }}>
+                      {tp.is_goalkeeper ? '🧤 goleiro' : posNoTime ? `${posNoTime}` : '—'}
+                    </p>
+                    {subOutName && (
+                      <p style={{ fontSize: '0.7rem', color: '#7c3aed', fontWeight: 600, margin: 0 }}>🔄 entrou por {subOutName.split(' ')[0]}</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+
+      {/* Modal campo */}
+      {timeCampo && (() => {
+        const cor = timeCampo.color ?? '#16a34a'
+        const players = timeCampo.team_players ?? []
+        const media = mediaTime(timeCampo)
+        const porPos: Record<string, any[]> = {}
+        POSICOES_ORDEM.forEach(p => { porPos[p] = [] })
+        players.forEach((tp: any) => {
+          if (tp.is_goalkeeper) { porPos['goleiro'].push(tp); return }
+          // Usa position_in_team salvo no banco (posição real no time)
+          // Fallback: guest_pos ou position_1 do perfil
+          const pos = tp.position_in_team
+            ?? (tp.is_guest ? tp._guest_pos : tp.profile?.position_1)
+            ?? 'meia'
+          const posNorm = POSICOES_ORDEM.includes(pos) ? pos : 'meia'
+          porPos[posNorm].push(tp)
+        })
+        const posComJogs = POSICOES_ORDEM.filter(p => porPos[p].length > 0)
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backgroundColor: 'rgba(0,0,0,0.85)' }}>
+            <div style={{ width: '100%', maxWidth: '420px', maxHeight: '90vh', borderRadius: '1.25rem', overflow: 'hidden', boxShadow: '0 25px 80px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' as const }}>
+              <div style={{ background: `linear-gradient(135deg, ${cor}, ${cor}cc)`, padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                <div>
+                  <p style={{ color: 'white', fontWeight: 800, fontSize: '1rem', margin: 0 }}>{timeCampo.name}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: '2px 0 0' }}>⭐ {media.toFixed(1)} · {players.length} jogadores</p>
+                </div>
+                <button onClick={() => setTimeCampo(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '9999px', width: '32px', height: '32px', color: 'white', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+              <div style={{ background: 'linear-gradient(180deg, #15803d 0%, #16a34a 20%, #15803d 40%, #16a34a 60%, #15803d 80%, #16a34a 100%)', padding: '1rem 0.5rem', flex: 1, position: 'relative' as const, display: 'flex', flexDirection: 'column' as const, justifyContent: 'space-evenly', minHeight: '420px' }}>
+                <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' as const }}>
+                  <div style={{ position: 'absolute', top: '50%', left: '5%', right: '5%', height: '2px', backgroundColor: 'rgba(255,255,255,0.25)' }} />
+                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '80px', height: '80px', borderRadius: '9999px', border: '2px solid rgba(255,255,255,0.25)' }} />
+                  <div style={{ position: 'absolute', bottom: '2%', left: '28%', right: '28%', height: '10%', border: '2px solid rgba(255,255,255,0.25)', borderTop: 'none' }} />
+                  <div style={{ position: 'absolute', top: '2%', left: '28%', right: '28%', height: '10%', border: '2px solid rgba(255,255,255,0.25)', borderBottom: 'none' }} />
+                </div>
+                {posComJogs.map(pos => (
+                  <div key={pos} style={{ display: 'flex', justifyContent: 'space-evenly', alignItems: 'center', position: 'relative' as const, zIndex: 1 }}>
+                    {porPos[pos].map((tp: any) => {
+                      const nome = tp.is_guest
+                        ? (tp._guest_name ?? 'Convidado')
+                        : (tp.profile?.full_name ?? 'Jogador')
+                      const foto = tp.is_guest ? null : (tp.profile?.photo_url ?? null)
+                      const initials = nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
+                      const primeiro = nome.split(' ')[0]
+                      return (
+                        <div key={tp.id} style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: '4px', maxWidth: '60px' }}>
+                          <div style={{ width: '44px', height: '44px', borderRadius: '9999px', border: `3px solid white`, backgroundColor: 'rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
+                            {foto ? <img src={foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'white' }}>{initials}</span>}
+                          </div>
+                          <div style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '0.375rem', padding: '2px 5px' }}>
+                            <p style={{ fontSize: '0.58rem', fontWeight: 700, color: 'white', margin: 0, maxWidth: '52px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{primeiro}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </>
   )
 }

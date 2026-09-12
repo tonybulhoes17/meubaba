@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, Trash2, Shuffle, Save, Loader2, Search } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Save, Loader2, Search, Star, ChevronRight, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
+// ─── Tipos ───────────────────────────────────────────────────
 interface Jogador {
   key: string
   user_id: string | null
@@ -12,223 +13,643 @@ interface Jogador {
   full_name: string
   photo_url: string | null
   position_1: string | null
+  position_2: string | null
+  position_3: string | null
   is_guest: boolean
   is_goalkeeper?: boolean
+  // scores
+  velocidade: number; forca_fisica: number; passe: number; chute: number
+  marcacao: number; drible: number; posicionamento: number; resistencia: number; jogo_aereo: number
+  never_edited: boolean
+  // calculados
+  scoreGeral: number
+  scorePosicional: Record<string, number>
 }
 
 interface Time {
   id?: string
   name: string
   color: string
-  jogadores: Jogador[]
+  jogadores: JogadorNoTime[]
 }
 
-// Paleta com cores vibrantes e nomes legíveis
+interface JogadorNoTime {
+  jogador: Jogador
+  posicaoNoTime: string // posição que está jogando neste time
+  scoreNoTime: number  // score ponderado para essa posição
+}
+
+interface PesoRow {
+  posicao: string
+  velocidade: number; forca_fisica: number; passe: number; chute: number
+  marcacao: number; drible: number; posicionamento: number; resistencia: number; jogo_aereo: number
+}
+
+interface FormacaoConfig {
+  numTimes: number
+  jogadoresPorTime: number
+  posicoes: { posicao: string; quantidade: number }[]
+  modo: 'score' | 'posicao' | 'manual'
+}
+
+// ─── Constantes ──────────────────────────────────────────────
 const PALETA = [
-  { name: 'Time Verde',    color: '#16a34a', text: 'white' },
-  { name: 'Time Vermelho', color: '#dc2626', text: 'white' },
-  { name: 'Time Azul',     color: '#2563eb', text: 'white' },
-  { name: 'Time Laranja',  color: '#ea580c', text: 'white' },
-  { name: 'Time Roxo',     color: '#7c3aed', text: 'white' },
-  { name: 'Time Rosa',     color: '#db2777', text: 'white' },
-  { name: 'Time Ciano',    color: '#0891b2', text: 'white' },
-  { name: 'Time Amarelo',  color: '#ca8a04', text: 'white' },
+  { name: 'Time Verde',    color: '#16a34a' },
+  { name: 'Time Vermelho', color: '#dc2626' },
+  { name: 'Time Azul',     color: '#2563eb' },
+  { name: 'Time Laranja',  color: '#ea580c' },
+  { name: 'Time Roxo',     color: '#7c3aed' },
+  { name: 'Time Rosa',     color: '#db2777' },
+  { name: 'Time Ciano',    color: '#0891b2' },
+  { name: 'Time Amarelo',  color: '#ca8a04' },
 ]
 
+const POSICOES_LINHA = ['zagueiro','lateral','volante','meia','atacante']
 const posicaoIcon: Record<string, string> = {
-  goleiro: '🧤', zagueiro: '🛡️', lateral: '↔️',
-  volante: '⚙️', meia: '🎯', atacante: '⚡',
+  goleiro:'🧤', zagueiro:'🛡️', lateral:'↔️', volante:'⚙️', meia:'🎯', atacante:'⚡',
 }
 
+const CRITERIOS = ['velocidade','forca_fisica','passe','chute','marcacao','drible','posicionamento','resistencia','jogo_aereo'] as const
+
+// ─── Funções de score ─────────────────────────────────────────
+function calcScorePosicional(j: Jogador, posicao: string, pesos: PesoRow[]): number {
+  const peso = pesos.find(p => p.posicao === posicao)
+  if (!j || !peso) return j?.scoreGeral ?? 3
+  let soma = 0, totalPeso = 0
+  for (const c of CRITERIOS) {
+    soma += j[c] * peso[c]
+    totalPeso += peso[c]
+  }
+  return totalPeso > 0 ? Math.round((soma / totalPeso) * 10) / 10 : 3
+}
+
+function calcScoreGeral(j: any): number {
+  const vals = CRITERIOS.map(c => j[c] ?? 3)
+  return Math.round((vals.reduce((a: number, b: number) => a + b, 0) / vals.length) * 10) / 10
+}
+
+function scoreMediaTime(time: Time): number {
+  if (time.jogadores.length === 0) return 0
+  const soma = time.jogadores.reduce((a, jt) => a + jt.scoreNoTime, 0)
+  return Math.round((soma / time.jogadores.length) * 10) / 10
+}
+
+function scoreColor(v: number) {
+  if (v >= 4.5) return '#15803d'
+  if (v >= 3.5) return '#1d4ed8'
+  if (v >= 2.5) return '#854d0e'
+  return '#b91c1c'
+}
+
+// ─── Helpers do algoritmo ────────────────────────────────────
+function scoreSomaTime(t: Time): number {
+  return t.jogadores.reduce((a, jt) => a + jt.scoreNoTime, 0)
+}
+
+function desvioEntresTimes(times: Time[]): number {
+  const somas = times.map(scoreSomaTime)
+  const max = Math.max(...somas)
+  const min = Math.min(...somas)
+  return max - min
+}
+
+function melhorPosicaoParaJogador(j: Jogador, posicoes: { posicao: string }[], pesos: PesoRow[]): string {
+  const lista = posicoes.map(p => p.posicao)
+  if (lista.length === 0) return j.position_1 ?? 'meia'
+  return lista.reduce((best, pos) =>
+    calcScorePosicional(j, pos, pesos) > calcScorePosicional(j, best, pesos) ? pos : best
+  , lista[0])
+}
+
+// ─── Algoritmo de divisão ─────────────────────────────────────
+function dividirTimes(
+  jogadores: Jogador[],
+  config: FormacaoConfig,
+  pesos: PesoRow[]
+): Time[] {
+  const { numTimes, posicoes, modo } = config
+
+  // jogadoresPorTime na UI = jogadores de LINHA por time (goleiro não conta)
+  // totalLinha = soma das posições configuradas
+  const totalLinhaPorTime = posicoes.reduce((a, p) => a + p.quantidade, 0)
+  const totalPorTime      = totalLinhaPorTime + 1  // +1 goleiro
+  const totalVagas        = totalPorTime * numTimes
+  const vagasLinha        = totalLinhaPorTime * numTimes
+
+  // Separa goleiros e linha
+  const todosGoleiros = jogadores.filter(j => j.position_1 === 'goleiro')
+  const todosLinha    = jogadores.filter(j => j.position_1 !== 'goleiro')
+
+  // ── Seleciona goleiros: 1 por time ──
+  // Embaralha e pega os primeiros numTimes
+  const goleirosEmb = [...todosGoleiros].sort(() => Math.random() - 0.5)
+  const goleiros = goleirosEmb.slice(0, numTimes)
+
+  // Modo score: pré-seleciona os melhores por score geral
+  // Modo posição: seleção feita dentro do loop por posição (pool compartilhado)
+  const linhaEscolhida = modo !== 'posicao'
+    ? [...todosLinha].sort((a, b) => b.scoreGeral - a.scoreGeral).slice(0, vagasLinha)
+    : []
+
+  // Inicializa times
+  const times: Time[] = Array.from({ length: numTimes }, (_, i) => ({
+    name: PALETA[i % PALETA.length].name,
+    color: PALETA[i % PALETA.length].color,
+    jogadores: [],
+  }))
+
+  // Helper: time com menor soma que ainda cabe jogador
+  // maxTotal = totalPorTime (inclui goleiro)
+  function timeComMenorSoma(maxJogs: number): number {
+    return times
+      .map((t, i) => ({ i, n: t.jogadores.length, soma: scoreSomaTime(t) }))
+      .filter(t => t.n < maxJogs)
+      .sort((a, b) => a.soma - b.soma)[0]?.i ?? 0
+  }
+
+  // ── Distribui goleiros: greedy, 1 por time, menor soma primeiro ──
+  const goleirosOrd = [...goleiros].sort((a, b) =>
+    (b.scorePosicional['goleiro'] ?? b.scoreGeral) - (a.scorePosicional['goleiro'] ?? a.scoreGeral)
+  )
+  for (const g of goleirosOrd) {
+    const timeIdx = times
+      .map((t, i) => ({ i, temGol: t.jogadores.some(jt => jt.posicaoNoTime === 'goleiro'), soma: scoreSomaTime(t) }))
+      .filter(t => !t.temGol)
+      .sort((a, b) => a.soma - b.soma)[0]?.i ?? 0
+    times[timeIdx].jogadores.push({
+      jogador: { ...g, is_goalkeeper: true },
+      posicaoNoTime: 'goleiro',
+      scoreNoTime: g.scorePosicional['goleiro'] ?? g.scoreGeral,
+    })
+  }
+
+  if (modo === 'posicao') {
+    // ════════════════════════════════════════════════════
+    // MODO POSIÇÃO — algoritmo em 2 fases:
+    //
+    // FASE 1 — RESERVA: para cada posição, marca os jogadores
+    //   ideais (pos1 exata) como reservados. Processa em ordem
+    //   de escassez (menos candidatos por vaga = entra primeiro).
+    //   Só usa pos2/pos3/qualquer se realmente não houver pos1.
+    //
+    // FASE 2 — DISTRIBUIÇÃO: distribui os reservados de cada
+    //   posição garantindo EXATAMENTE `quantidade` por time,
+    //   greedy pelo score posicional.
+    // ════════════════════════════════════════════════════
+
+    // Índice rápido de jogadores por key
+    const jogadorPorKey: Record<string, Jogador> = {}
+    for (const j of todosLinha) jogadorPorKey[j.key] = j
+
+    // Pool de disponíveis (keys)
+    const pool = new Set<string>(todosLinha.map(j => j.key))
+
+    // Mapa de reservas: posicao → lista de Jogador
+    const reservas: Record<string, Jogador[]> = {}
+
+    // FASE 1 — TRÊS PASSAGENS para garantir que toda posição seja preenchida:
+    //
+    // Passagem A: apenas pos1 exata — preenche quem tem a posição como primeira opção
+    // Passagem B: apenas pos2/pos3 — completa vagas com segunda e terceira opção
+    // Passagem C: qualquer disponível — último recurso para vagas ainda abertas
+    //
+    // Em cada passagem, processa posições da mais escassa para a menos escassa
+    // para evitar que posições raras percam candidatos para posições abundantes.
+
+    // Inicializa reservas com arrays vazios
+    for (const { posicao } of posicoes) reservas[posicao] = []
+
+    // ── Passagem A: pos1 exata ──
+    {
+      const posicoesOrd = [...posicoes].sort((a, b) => {
+        const dA = [...pool].filter(k => jogadorPorKey[k]?.position_1 === a.posicao).length
+        const dB = [...pool].filter(k => jogadorPorKey[k]?.position_1 === b.posicao).length
+        return (dA / (a.quantidade * numTimes)) - (dB / (b.quantidade * numTimes))
+      })
+      for (const { posicao, quantidade } of posicoesOrd) {
+        const vagasTotais = quantidade * numTimes
+        const faltam = vagasTotais - reservas[posicao].length
+        if (faltam <= 0) continue
+        const candidatos = [...pool]
+          .map(k => jogadorPorKey[k]).filter(j => j?.position_1 === posicao)
+          .sort((a, b) => calcScorePosicional(b, posicao, pesos) - calcScorePosicional(a, posicao, pesos))
+          .slice(0, faltam)
+        for (const j of candidatos) { reservas[posicao].push(j); pool.delete(j.key) }
+      }
+    }
+
+    // ── Passagem B: pos2 e pos3 ──
+    {
+      const posicoesOrd = [...posicoes].sort((a, b) => {
+        const vagA = (a.quantidade * numTimes) - reservas[a.posicao].length
+        const vagB = (b.quantidade * numTimes) - reservas[b.posicao].length
+        // Prioriza quem ainda tem mais vagas abertas
+        return vagB - vagA
+      })
+      for (const { posicao, quantidade } of posicoesOrd) {
+        const vagasTotais = quantidade * numTimes
+        let faltam = vagasTotais - reservas[posicao].length
+        if (faltam <= 0) continue
+        for (const filtro of [
+          (j: Jogador) => j.position_2 === posicao,
+          (j: Jogador) => j.position_3 === posicao,
+        ]) {
+          if (faltam <= 0) break
+          const candidatos = [...pool]
+            .map(k => jogadorPorKey[k]).filter(j => j && filtro(j))
+            .sort((a, b) => calcScorePosicional(b, posicao, pesos) - calcScorePosicional(a, posicao, pesos))
+            .slice(0, faltam)
+          for (const j of candidatos) { reservas[posicao].push(j); pool.delete(j.key); faltam-- }
+        }
+      }
+    }
+
+    // ── Passagem C: qualquer disponível (último recurso) ──
+    {
+      for (const { posicao, quantidade } of posicoes) {
+        const vagasTotais = quantidade * numTimes
+        let faltam = vagasTotais - reservas[posicao].length
+        if (faltam <= 0) continue
+        const candidatos = [...pool]
+          .map(k => jogadorPorKey[k]).filter(j => !!j)
+          .sort((a, b) => calcScorePosicional(b, posicao, pesos) - calcScorePosicional(a, posicao, pesos))
+          .slice(0, faltam)
+        for (const j of candidatos) { reservas[posicao].push(j); pool.delete(j.key) }
+      }
+    }
+
+    // Ordem de distribuição = ordem original do admin
+    const posicoesOrdenadas = posicoes
+
+    // FASE 2 — distribui cada posição garantindo `quantidade` exata por time
+    for (const { posicao, quantidade } of posicoesOrdenadas) {
+      const selecionados = reservas[posicao] ?? []
+      selecionados.sort((a, b) => calcScorePosicional(b, posicao, pesos) - calcScorePosicional(a, posicao, pesos))
+
+      // contPos[i] = quantos desta posição o time i já recebeu
+      const contPos: number[] = times.map(() => 0)
+      for (const j of selecionados) {
+        const timeIdx = times
+          .map((t, i) => ({ i, cont: contPos[i], soma: scoreSomaTime(t) }))
+          .filter(t => t.cont < quantidade)
+          .sort((a, b) => a.soma - b.soma)[0]?.i ?? 0
+        contPos[timeIdx]++
+        times[timeIdx].jogadores.push({
+          jogador: j,
+          posicaoNoTime: posicao,
+          scoreNoTime: calcScorePosicional(j, posicao, pesos),
+        })
+      }
+    }
+
+  } else {
+    // ── Modo score: distribui greedy por score geral ──
+    const ordenada = [...linhaEscolhida].sort((a, b) => b.scoreGeral - a.scoreGeral)
+    for (const j of ordenada) {
+      const timeIdx = timeComMenorSoma(totalPorTime)
+      const melhorPos = melhorPosicaoParaJogador(j, posicoes, pesos)
+      times[timeIdx].jogadores.push({
+        jogador: j,
+        posicaoNoTime: melhorPos,
+        scoreNoTime: calcScorePosicional(j, melhorPos, pesos),
+      })
+    }
+  }
+
+  // ── Fase de otimização: trocas que reduzem o desvio entre times ──
+  // IMPORTANTE: só troca jogadores da MESMA posição para não quebrar a formação
+  let melhorou = true
+  let iteracoes = 0
+  while (melhorou && iteracoes < 20) {
+    melhorou = false
+    iteracoes++
+    const desvioAtual = desvioEntresTimes(times)
+    if (desvioAtual < 0.15) break
+
+    outer:
+    for (let i = 0; i < times.length; i++) {
+      for (let j = i + 1; j < times.length; j++) {
+        for (const jtA of times[i].jogadores) {
+          if (jtA.posicaoNoTime === 'goleiro') continue
+          for (const jtB of times[j].jogadores) {
+            if (jtB.posicaoNoTime === 'goleiro') continue
+            // Só troca se forem da MESMA posição — preserva formação
+            if (jtA.posicaoNoTime !== jtB.posicaoNoTime) continue
+            const somaI = scoreSomaTime(times[i]) - jtA.scoreNoTime + jtB.scoreNoTime
+            const somaJ = scoreSomaTime(times[j]) - jtB.scoreNoTime + jtA.scoreNoTime
+            const outrosSomas = times.filter((_, k) => k !== i && k !== j).map(scoreSomaTime)
+            const novoDesvio = Math.max(...outrosSomas, somaI, somaJ) - Math.min(...outrosSomas, somaI, somaJ)
+            if (novoDesvio < desvioAtual - 0.05) {
+              times[i].jogadores = times[i].jogadores.filter(x => x.jogador.key !== jtA.jogador.key)
+              times[j].jogadores = times[j].jogadores.filter(x => x.jogador.key !== jtB.jogador.key)
+              times[i].jogadores.push({ ...jtB, posicaoNoTime: jtB.posicaoNoTime, scoreNoTime: calcScorePosicional(jtB.jogador, jtB.posicaoNoTime, pesos) })
+              times[j].jogadores.push({ ...jtA, posicaoNoTime: jtA.posicaoNoTime, scoreNoTime: calcScorePosicional(jtA.jogador, jtA.posicaoNoTime, pesos) })
+              melhorou = true
+              break outer
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return times
+}
+
+// ─── Componente principal ─────────────────────────────────────
 export default function TimesPage() {
   const { groupId, roundId } = useParams<{ groupId: string; roundId: string }>()
   const router = useRouter()
   const supabase = createClient()
 
+  // Estado principal
   const [presentes, setPresentes] = useState<Jogador[]>([])
+  const [pesos, setPesos] = useState<PesoRow[]>([])
   const [times, setTimes] = useState<Time[]>([])
-  const [semTime, setSemTime] = useState<Jogador[]>([])
+  const [goleiros, setGoleiros] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [erroGoleiro, setErroGoleiro] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'lista' | 'vs'>('lista')
   const [busca, setBusca] = useState('')
-  const [goleiros, setGoleiros] = useState<Record<string, boolean>>({})
-  const [erroGoleiro, setErroGoleiro] = useState<string | null>(null)
+
+  // Fluxo de configuração
+  const [etapa, setEtapa] = useState<'config' | 'times'>('config')
+  const [config, setConfig] = useState<FormacaoConfig>({
+    numTimes: 2,
+    jogadoresPorTime: 7,
+    posicoes: [
+      { posicao: 'zagueiro', quantidade: 2 },
+      { posicao: 'lateral', quantidade: 2 },
+      { posicao: 'volante', quantidade: 1 },
+      { posicao: 'meia', quantidade: 1 },
+      { posicao: 'atacante', quantidade: 1 },
+    ],
+    modo: 'score',
+  })
+
+  // Jogador sendo movido manualmente
+  const [movendo, setMovendo] = useState<{ jt: JogadorNoTime; timeIdx: number } | null>(null)
+  const [buscaSwap, setBuscaSwap] = useState('')
+  const [timeCampo, setTimeCampo] = useState<Time | null>(null)
 
   useEffect(() => { fetchData() }, [roundId])
 
   async function fetchData() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { router.push('/login'); return }
+
+    // Busca check-ins
     const { data: atts } = await supabase
       .from('round_attendance')
-      .select('id, user_id, guest_name, is_guest, checked_in, profile:profiles(full_name, photo_url, position_1)')
+      .select('id, user_id, guest_name, is_guest, checked_in, arrival_order, guest_position_1, guest_position_2, guest_position_3, guest_avg_score, profile:profiles(full_name, photo_url, position_1, position_2, position_3)')
       .eq('round_id', roundId)
       .eq('checked_in', true)
+      .order('arrival_order', { ascending: true })
 
-    const jogadores: Jogador[] = (atts ?? []).map((a: any) => ({
-      key: a.is_guest ? `guest_${a.id}` : a.user_id,
-      user_id: a.is_guest ? null : a.user_id,
-      attendance_id: a.id,
-      full_name: a.is_guest ? (a.guest_name ?? 'Convidado') : (a.profile?.full_name ?? 'Jogador'),
-      photo_url: a.is_guest ? null : (a.profile?.photo_url ?? null),
-      position_1: a.is_guest ? null : (a.profile?.position_1 ?? null),
-      is_guest: a.is_guest,
-      is_goalkeeper: false,
+    // Busca scores
+    const userIds = (atts ?? []).filter((a: any) => !a.is_guest).map((a: any) => a.user_id)
+    const { data: scoresDB } = userIds.length > 0
+      ? await supabase.from('player_scores').select('*').eq('group_id', groupId).in('user_id', userIds)
+      : { data: [] }
+    const scoreMap: Record<string, any> = {}
+    ;(scoresDB ?? []).forEach((s: any) => { scoreMap[s.user_id] = s })
+
+    // Busca pesos por posição
+    const { data: pesosDB } = await supabase
+      .from('position_weights').select('*').eq('group_id', groupId)
+    const pesosCarregados: PesoRow[] = (pesosDB ?? []).map((p: any) => ({
+      posicao: p.posicao,
+      velocidade: p.velocidade, forca_fisica: p.forca_fisica, passe: p.passe,
+      chute: p.chute, marcacao: p.marcacao, drible: p.drible,
+      posicionamento: p.posicionamento, resistencia: p.resistencia, jogo_aereo: p.jogo_aereo,
     }))
+    setPesos(pesosCarregados)
+
+    const jogadores: Jogador[] = (atts ?? []).map((a: any) => {
+      const sc = a.is_guest ? null : (scoreMap[a.user_id] ?? null)
+      const base = {
+        velocidade: sc?.velocidade ?? 3, forca_fisica: sc?.forca_fisica ?? 3,
+        passe: sc?.passe ?? 3, chute: sc?.chute ?? 3, marcacao: sc?.marcacao ?? 3,
+        drible: sc?.drible ?? 3, posicionamento: sc?.posicionamento ?? 3,
+        resistencia: sc?.resistencia ?? 3, jogo_aereo: sc?.jogo_aereo ?? 3,
+      }
+      if (a.is_guest) {
+        const avgScore = a.guest_avg_score ?? 3
+        Object.assign(base, {
+          velocidade: avgScore, forca_fisica: avgScore, passe: avgScore,
+          chute: avgScore, marcacao: avgScore, drible: avgScore,
+          posicionamento: avgScore, resistencia: avgScore, jogo_aereo: avgScore,
+        })
+      }
+      const scoreGeral = calcScoreGeral(base)
+      const j: Jogador = {
+        key: a.is_guest ? `guest_${a.id}` : a.user_id,
+        user_id: a.is_guest ? null : a.user_id,
+        attendance_id: a.id,
+        full_name: a.is_guest ? (a.guest_name ?? 'Convidado') : (a.profile?.full_name ?? 'Jogador'),
+        photo_url: a.is_guest ? null : (a.profile?.photo_url ?? null),
+        position_1: a.is_guest ? (a.guest_position_1 ?? null) : (a.profile?.position_1 ?? null),
+        position_2: a.is_guest ? (a.guest_position_2 ?? null) : (a.profile?.position_2 ?? null),
+        position_3: a.is_guest ? (a.guest_position_3 ?? null) : (a.profile?.position_3 ?? null),
+        is_guest: a.is_guest,
+        is_goalkeeper: a.profile?.position_1 === 'goleiro',
+        never_edited: sc?.never_edited ?? true,
+        ...base,
+        scoreGeral,
+        scorePosicional: {},
+      }
+      // Calcula score posicional para cada posição
+      ;['goleiro','zagueiro','lateral','volante','meia','atacante'].forEach(pos => {
+        j.scorePosicional[pos] = calcScorePosicional(j, pos, pesosCarregados)
+      })
+      return j
+    })
 
     setPresentes(jogadores)
 
+    // Verifica se já tem times salvos
     const { data: timesDB } = await supabase
       .from('teams')
-      .select('*, team_players(user_id, attendance_id, is_goalkeeper)')
+      .select('*, team_players(user_id, attendance_id, is_goalkeeper, position_in_team)')
       .eq('round_id', roundId)
 
     if (timesDB && timesDB.length > 0) {
-      const timesFormatados: Time[] = timesDB.map((t: any) => ({
-        id: t.id,
-        name: t.name,
-        color: t.color ?? '#16a34a',
-        jogadores: jogadores.filter(j =>
-          t.team_players.some((tp: any) =>
-            j.is_guest ? tp.attendance_id === j.attendance_id : tp.user_id === j.user_id
-          )
-        ),
-      }))
-      setTimes(timesFormatados)
-
-      // Popula o estado goleiros a partir do banco
+      // Reconstrói times salvos
       const goleirosCarregados: Record<string, boolean> = {}
-      timesDB.forEach((t: any) => {
+      const timesFormatados: Time[] = timesDB.map((t: any) => {
+        const jogs: JogadorNoTime[] = []
         t.team_players.forEach((tp: any) => {
-          if (tp.is_goalkeeper) {
-            const key = tp.user_id ?? `guest_${tp.attendance_id}`
-            goleirosCarregados[key] = true
+          const j = jogadores.find(jj =>
+            jj.is_guest ? tp.attendance_id === jj.attendance_id : tp.user_id === jj.user_id
+          )
+          if (j) {
+            if (tp.is_goalkeeper) goleirosCarregados[j.key] = true
+            const pos = tp.is_goalkeeper ? 'goleiro' : (tp.position_in_team ?? j.position_1 ?? 'meia')
+            jogs.push({
+              jogador: { ...j, is_goalkeeper: tp.is_goalkeeper },
+              posicaoNoTime: pos,
+              scoreNoTime: calcScorePosicional(j, pos, pesosCarregados),
+            })
           }
         })
+        return { id: t.id, name: t.name, color: t.color ?? '#16a34a', jogadores: jogs }
       })
       setGoleiros(goleirosCarregados)
-
-      const emTime = timesDB.flatMap((t: any) => [
-        ...t.team_players.filter((tp: any) => tp.user_id).map((tp: any) => tp.user_id),
-        ...t.team_players.filter((tp: any) => !tp.user_id && tp.attendance_id).map((tp: any) => `guest_${tp.attendance_id}`),
-      ])
-      setSemTime(jogadores.filter(j => !emTime.includes(j.key)))
-    } else {
-      setSemTime(jogadores)
+      setTimes(timesFormatados)
+      setEtapa('times')
     }
 
     setLoading(false)
   }
 
-  function adicionarTime() {
-    const paletaIdx = times.length % PALETA.length
-    const cor = PALETA[paletaIdx]
-    setTimes([...times, { name: cor.name, color: cor.color, jogadores: [] }])
+  // ─── Configuração da formação ─────────────────────────────
+  const totalLinha = config.posicoes.reduce((a, p) => a + p.quantidade, 0)
+  const totalPorTime = totalLinha + 1 // +1 goleiro
+  const totalNecessario = totalPorTime * config.numTimes
+  const linhaDisponiveis = presentes.filter(j => j.position_1 !== 'goleiro').length
+  const goleirosDisponiveis = presentes.filter(j => j.position_1 === 'goleiro').length
+  const formacaoValida = config.modo === 'manual'
+    ? config.numTimes >= 2
+    : totalNecessario <= presentes.length && goleirosDisponiveis >= config.numTimes
+
+  function updatePosicao(posicao: string, quantidade: number) {
+    setConfig(prev => {
+      const exists = prev.posicoes.find(p => p.posicao === posicao)
+      if (quantidade === 0) return { ...prev, posicoes: prev.posicoes.filter(p => p.posicao !== posicao) }
+      if (exists) return { ...prev, posicoes: prev.posicoes.map(p => p.posicao === posicao ? { ...p, quantidade } : p) }
+      return { ...prev, posicoes: [...prev.posicoes, { posicao, quantidade }] }
+    })
   }
 
-  function moverJogador(jogador: Jogador, paraTimeIdx: number) {
-    const novosTempos = times.map(t => ({
-      ...t, jogadores: t.jogadores.filter(j => j.key !== jogador.key),
-    }))
-    const novoSemTime = semTime.filter(j => j.key !== jogador.key)
-    if (paraTimeIdx === -1) {
-      setSemTime([...novoSemTime, jogador])
-      setTimes(novosTempos)
-    } else {
-      novosTempos[paraTimeIdx].jogadores.push(jogador)
-      setTimes(novosTempos)
-      setSemTime(novoSemTime)
+  function gerarTimes() {
+    if (config.modo === 'manual') {
+      // Modo manual: cria times vazios, todos os jogadores ficam "sem time"
+      const timesVazios: Time[] = Array.from({ length: config.numTimes }, (_, i) => ({
+        name: PALETA[i % PALETA.length].name,
+        color: PALETA[i % PALETA.length].color,
+        jogadores: [],
+      }))
+      setTimes(timesVazios)
+      setEtapa('times')
+      return
     }
+    const timesGerados = dividirTimes(presentes, config, pesos)
+    // Marca goleiros no estado
+    const novosGoleiros: Record<string, boolean> = {}
+    timesGerados.forEach(t => {
+      t.jogadores.forEach(jt => {
+        if (jt.posicaoNoTime === 'goleiro') novosGoleiros[jt.jogador.key] = true
+      })
+    })
+    setGoleiros(novosGoleiros)
+    setTimes(timesGerados)
+    setEtapa('times')
   }
 
-  function sortearTimes() {
-    if (times.length === 0) return
-    const shuffled = [...presentes].sort(() => Math.random() - 0.5)
-    const novosTempos = times.map(t => ({ ...t, jogadores: [] as Jogador[] }))
-    shuffled.forEach((j, i) => { novosTempos[i % novosTempos.length].jogadores.push(j) })
-    setTimes(novosTempos)
-    setSemTime([])
+  // ─── Mover jogador entre times ────────────────────────────
+  function moverParaTime(jogadorKey: string, paraTimeIdx: number) {
+    setTimes(prev => {
+      // Encontra o jogador em qualquer time
+      let jtEncontrado: JogadorNoTime | null = null
+      for (const t of prev) {
+        const found = t.jogadores.find(x => x.jogador.key === jogadorKey)
+        if (found) { jtEncontrado = found; break }
+      }
+      if (!jtEncontrado) return prev
+
+      // Remove de TODOS os times (garante sem duplicata)
+      const novo = prev.map(t => ({
+        ...t, jogadores: t.jogadores.filter(x => x.jogador.key !== jogadorKey)
+      }))
+
+      // Insere no time destino (paraTimeIdx === -1 = sem time / modo manual)
+      if (paraTimeIdx >= 0 && paraTimeIdx < novo.length) {
+        const pos = jtEncontrado.posicaoNoTime
+        novo[paraTimeIdx].jogadores.push({
+          ...jtEncontrado,
+          posicaoNoTime: pos,
+          scoreNoTime: calcScorePosicional(jtEncontrado.jogador, pos, pesos),
+        })
+      }
+      return novo
+    })
+    setMovendo(null)
   }
 
+  function moverParaSemTime(jogadorKey: string) {
+    setTimes(prev => prev.map(t => ({
+      ...t, jogadores: t.jogadores.filter(x => x.jogador.key !== jogadorKey)
+    })))
+    setMovendo(null)
+  }
+
+  // ─── Salvar times ─────────────────────────────────────────
   async function salvarTimes() {
     setErroGoleiro(null)
 
-    // Valida: cada time com jogadores deve ter exatamente 1 goleiro
+    // Valida goleiros
     const timesComJogadores = times.filter(t => t.jogadores.length > 0)
     for (const time of timesComJogadores) {
-      const goleirosDoTime = time.jogadores.filter(j => goleiros[j.key])
-      if (goleirosDoTime.length === 0) {
-        setErroGoleiro(`O time "${time.name}" não tem goleiro marcado. Marque um goleiro com 🧤 antes de salvar.`)
+      const gols = time.jogadores.filter(jt => jt.posicaoNoTime === 'goleiro' || goleiros[jt.jogador.key])
+      if (gols.length === 0) {
+        setErroGoleiro(`O time "${time.name}" não tem goleiro. Marque um goleiro antes de salvar.`)
         return
       }
-      if (goleirosDoTime.length > 1) {
-        setErroGoleiro(`O time "${time.name}" tem ${goleirosDoTime.length} goleiros marcados. Cada time pode ter apenas 1 goleiro.`)
+      if (gols.length > 1) {
+        setErroGoleiro(`O time "${time.name}" tem ${gols.length} goleiros. Cada time pode ter apenas 1.`)
         return
       }
     }
 
     setSaving(true)
 
-    // Verifica se já existem jogos lançados para esta rodada
     const { data: jogosExistentes } = await supabase
-      .from('matches')
-      .select('id')
-      .eq('round_id', roundId)
-      .limit(1)
-
+      .from('matches').select('id').eq('round_id', roundId).limit(1)
     const temJogos = (jogosExistentes ?? []).length > 0
 
     if (temJogos) {
-      // ── Modo seguro: já há jogos lançados — preserva teams/matches, só atualiza team_players ──
-      const { data: antigos } = await supabase
-        .from('teams').select('id, name, color').eq('round_id', roundId)
+      const { data: antigos } = await supabase.from('teams').select('id, name, color').eq('round_id', roundId)
       const antigosIds = (antigos ?? []).map((t: any) => t.id)
       const antigosMap = Object.fromEntries((antigos ?? []).map((t: any) => [t.id, t]))
-
-      // Limpa TODOS os team_players dos times existentes de uma vez
-      // (garante que times esvaziados pelo admin também sejam limpos)
-      if (antigosIds.length > 0) {
-        await supabase.from('team_players').delete().in('team_id', antigosIds)
-      }
+      if (antigosIds.length > 0) await supabase.from('team_players').delete().in('team_id', antigosIds)
 
       for (const time of times) {
         const teamId = time.id
+        const isGoleiro = (jt: JogadorNoTime) => jt.posicaoNoTime === 'goleiro' || goleiros[jt.jogador.key]
 
         if (teamId && antigosMap[teamId]) {
-          // Time já existe no banco: atualiza nome/cor
-          await supabase.from('teams')
-            .update({ name: time.name, color: time.color })
-            .eq('id', teamId)
-          // Reinsere jogadores (pode ser zero — time foi esvaziado, tudo bem)
+          await supabase.from('teams').update({ name: time.name, color: time.color }).eq('id', teamId)
           if (time.jogadores.length > 0) {
             await supabase.from('team_players').insert(
-              time.jogadores.map(j => ({
+              time.jogadores.map(jt => ({
                 team_id: teamId,
-                user_id: j.user_id,
-                attendance_id: j.is_guest ? j.attendance_id : null,
-                is_guest: j.is_guest,
-                is_goalkeeper: goleiros[j.key] ?? false,
+                user_id: jt.jogador.user_id,
+                attendance_id: jt.jogador.is_guest ? jt.jogador.attendance_id : null,
+                is_guest: jt.jogador.is_guest,
+                is_goalkeeper: isGoleiro(jt),
+                position_in_team: jt.posicaoNoTime,
               }))
             )
           }
         } else if (time.jogadores.length > 0) {
-          // Time novo (sem id): insere sem apagar os outros
           const { data: novoTime } = await supabase
             .from('teams').insert({ round_id: roundId, name: time.name, color: time.color }).select().single()
           if (novoTime) {
             await supabase.from('team_players').insert(
-              time.jogadores.map(j => ({
+              time.jogadores.map(jt => ({
                 team_id: novoTime.id,
-                user_id: j.user_id,
-                attendance_id: j.is_guest ? j.attendance_id : null,
-                is_guest: j.is_guest,
-                is_goalkeeper: goleiros[j.key] ?? false,
+                user_id: jt.jogador.user_id,
+                attendance_id: jt.jogador.is_guest ? jt.jogador.attendance_id : null,
+                is_guest: jt.jogador.is_guest,
+                is_goalkeeper: isGoleiro(jt),
+                position_in_team: jt.posicaoNoTime,
               }))
             )
           }
         }
       }
     } else {
-      // ── Modo normal: sem jogos lançados — pode recriar tudo sem risco ──
       const { data: antigos } = await supabase.from('teams').select('id').eq('round_id', roundId)
       if (antigos && antigos.length > 0) {
         await supabase.from('team_players').delete().in('team_id', antigos.map((t: any) => t.id))
@@ -240,12 +661,13 @@ export default function TimesPage() {
           .from('teams').insert({ round_id: roundId, name: time.name, color: time.color }).select().single()
         if (novoTime) {
           await supabase.from('team_players').insert(
-            time.jogadores.map(j => ({
+            time.jogadores.map(jt => ({
               team_id: novoTime.id,
-              user_id: j.user_id,
-              attendance_id: j.is_guest ? j.attendance_id : null,
-              is_guest: j.is_guest,
-              is_goalkeeper: goleiros[j.key] ?? false,
+              user_id: jt.jogador.user_id,
+              attendance_id: jt.jogador.is_guest ? jt.jogador.attendance_id : null,
+              is_guest: jt.jogador.is_guest,
+              is_goalkeeper: jt.posicaoNoTime === 'goleiro' || goleiros[jt.jogador.key],
+              position_in_team: jt.posicaoNoTime,
             }))
           )
         }
@@ -256,100 +678,135 @@ export default function TimesPage() {
     router.push(`/grupos/${groupId}/rodadas/${roundId}`)
   }
 
+  // ─── Loading ──────────────────────────────────────────────
   if (loading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="text-4xl animate-bounce">⚽</div>
     </div>
   )
 
-  // Card de jogador — botão ✕ direto, sem dropdown
-  function JogadorCard({ j, cor, onRemover }: {
-    j: Jogador
-    cor?: string
-    onRemover?: () => void
-  }) {
-    const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
-    const isGk = goleiros[j.key] ?? false
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '0.75rem',
-        padding: '0.625rem 1rem',
-        borderBottom: '1px solid rgba(0,0,0,0.04)',
-        backgroundColor: isGk ? '#fef9c3' : 'white',
-      }}>
-        {/* Avatar */}
-        <div style={{
-          width: '2.5rem', height: '2.5rem', borderRadius: '9999px', flexShrink: 0,
-          backgroundColor: cor ? cor + '33' : '#f1f5f9',
-          border: `2px solid ${isGk ? '#ca8a04' : (cor ?? '#e2e8f0')}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          overflow: 'hidden',
-        }}>
-          {j.photo_url
-            ? <img src={j.photo_url} alt={j.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <span style={{ fontSize: '0.75rem', fontWeight: 700, color: cor ?? '#64748b' }}>{initials}</span>}
-        </div>
-
-        {/* Info */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {isGk && <span style={{ marginRight: '4px' }}>🧤</span>}
-            {j.full_name}
-          </p>
-          <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '1px 0 0' }}>
-            {j.is_guest ? '🎟️ convidado' : j.position_1 ? `${posicaoIcon[j.position_1] ?? ''} ${j.position_1}` : '—'}
-          </p>
-        </div>
-
-        {/* Botão goleiro */}
-        <button onClick={() => setGoleiros(prev => ({ ...prev, [j.key]: !prev[j.key] }))}
-          title={isGk ? 'Remover goleiro' : 'Marcar como goleiro'}
-          style={{
-            padding: '3px 8px', borderRadius: '9999px', border: `1px solid ${isGk ? '#ca8a04' : '#e2e8f0'}`,
-            backgroundColor: isGk ? '#fef08a' : '#f8fafc', cursor: 'pointer',
-            fontSize: '0.75rem', fontWeight: 700, color: isGk ? '#92400e' : '#94a3b8',
-            flexShrink: 0,
-          }}>
-          🧤
-        </button>
-
-        {/* Botão remover */}
-        {onRemover && (
-          <button onClick={onRemover}
-            style={{
-              width: '28px', height: '28px', borderRadius: '9999px',
-              backgroundColor: '#fee2e2', border: 'none', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#ef4444', fontSize: '0.85rem', fontWeight: 700, flexShrink: 0,
-            }}>
-            ✕
+  // ─── ETAPA 1: Configuração ────────────────────────────────
+  if (etapa === 'config') return (
+    <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', paddingBottom: '7rem' }}>
+      <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', paddingTop: '3rem', paddingBottom: '1rem', padding: '3rem 1rem 1rem' }}>
+        <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <button onClick={() => router.back()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)' }}>
+            <ArrowLeft size={22} />
           </button>
-        )}
+          <div>
+            <h1 style={{ color: 'white', fontWeight: 700, margin: 0, fontSize: '1.1rem' }}>⚙️ Configurar Times</h1>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem', margin: '2px 0 0' }}>
+              {presentes.length} presentes · {goleirosDisponiveis} goleiros · {linhaDisponiveis} linha
+            </p>
+          </div>
+        </div>
       </div>
-    )
-  }
 
+      <div style={{ maxWidth: '640px', margin: '0 auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+        {/* Número de times */}
+        <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '0 0 0.75rem' }}>Quantos times?</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button onClick={() => setConfig(prev => ({ ...prev, numTimes: Math.max(2, prev.numTimes - 1) }))}
+              style={{ width: '40px', height: '40px', borderRadius: '9999px', border: '2px solid #e2e8f0', backgroundColor: 'white', fontWeight: 700, fontSize: '1.25rem', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>−</button>
+            <div style={{ flex: 1, textAlign: 'center' as const, padding: '0.625rem', borderRadius: '0.75rem', border: '2px solid #16a34a', backgroundColor: '#f0fdf4' }}>
+              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#15803d' }}>{config.numTimes}</span>
+              <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: '2px 0 0' }}>times</p>
+            </div>
+            <button onClick={() => setConfig(prev => ({ ...prev, numTimes: Math.min(10, prev.numTimes + 1) }))}
+              style={{ width: '40px', height: '40px', borderRadius: '9999px', border: '2px solid #e2e8f0', backgroundColor: 'white', fontWeight: 700, fontSize: '1.25rem', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>+</button>
+          </div>
+        </div>
+
+        {/* Modo */}
+        <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '0 0 0.75rem' }}>Modo de divisão</p>
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' }}>
+            {([
+              ['score',   '⚡ Score equilibrado', 'Divide automaticamente pelo score dos jogadores'],
+              ['posicao', '🎯 Por posição',        'Encaixa nas posições táticas e equilibra scores'],
+              ['manual',  '✋ Manual',              'Você move os jogadores livremente entre os times'],
+            ] as const).map(([val, label, desc]) => (
+              <button key={val} onClick={() => setConfig(prev => ({ ...prev, modo: val }))}
+                style={{ width: '100%', padding: '0.875rem', borderRadius: '0.875rem', border: `2px solid ${config.modo === val ? '#16a34a' : '#e2e8f0'}`, backgroundColor: config.modo === val ? '#f0fdf4' : 'white', cursor: 'pointer', textAlign: 'left' as const, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '9999px', backgroundColor: config.modo === val ? '#16a34a' : '#e2e8f0', flexShrink: 0 }} />
+                <div>
+                  <p style={{ fontSize: '0.85rem', fontWeight: 700, color: config.modo === val ? '#15803d' : '#1e293b', margin: '0 0 1px' }}>{label}</p>
+                  <p style={{ fontSize: '0.68rem', color: '#94a3b8', margin: 0 }}>{desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Posições — oculta no modo manual */}
+        {config.modo !== 'manual' && <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569', margin: '0 0 0.25rem' }}>Jogadores de linha por time</p>
+          <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '0 0 0.875rem' }}>Goleiro é sempre 1 por time (automático)</p>
+
+          {POSICOES_LINHA.map(pos => {
+            const qtd = config.posicoes.find(p => p.posicao === pos)?.quantidade ?? 0
+            return (
+              <div key={pos} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', borderBottom: '1px solid #f8fafc' }}>
+                <span style={{ fontSize: '1.1rem' }}>{posicaoIcon[pos]}</span>
+                <p style={{ flex: 1, fontSize: '0.82rem', fontWeight: 600, color: '#1e293b', margin: 0, textTransform: 'capitalize' as const }}>{pos}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button onClick={() => updatePosicao(pos, Math.max(0, qtd - 1))}
+                    style={{ width: '28px', height: '28px', borderRadius: '9999px', border: '1.5px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', fontWeight: 700, fontSize: '1rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                  <span style={{ fontSize: '1rem', fontWeight: 800, color: qtd > 0 ? '#16a34a' : '#cbd5e1', minWidth: '20px', textAlign: 'center' as const }}>{qtd}</span>
+                  <button onClick={() => updatePosicao(pos, qtd + 1)}
+                    style={{ width: '28px', height: '28px', borderRadius: '9999px', border: '1.5px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', fontWeight: 700, fontSize: '1rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Resumo */}
+          <div style={{ marginTop: '0.875rem', backgroundColor: '#f8fafc', borderRadius: '0.75rem', padding: '0.75rem' }}>
+            <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0 0 2px' }}>
+              📋 <strong>{totalLinha}</strong> linha + <strong>1</strong> goleiro = <strong>{totalPorTime}</strong> por time
+            </p>
+            <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>
+              🏟️ <strong>{config.numTimes}</strong> times × <strong>{totalPorTime}</strong> = <strong>{totalNecessario}</strong> jogadores necessários
+              {presentes.length < totalNecessario
+                ? <span style={{ color: '#b91c1c', fontWeight: 700 }}> (faltam {totalNecessario - presentes.length})</span>
+                : <span style={{ color: '#15803d', fontWeight: 700 }}> ✅ ({presentes.length} disponíveis)</span>
+              }
+            </p>
+            {goleirosDisponiveis < config.numTimes && (
+              <p style={{ fontSize: '0.72rem', color: '#b91c1c', fontWeight: 700, margin: '4px 0 0' }}>
+                ⚠️ Faltam goleiros: {goleirosDisponiveis} disponíveis para {config.numTimes} times
+              </p>
+            )}
+          </div>
+        </div>}
+
+        {/* Botão gerar */}
+        <button onClick={gerarTimes} disabled={!formacaoValida}
+          style={{ width: '100%', background: formacaoValida ? 'linear-gradient(135deg, #16a34a, #15803d)' : '#e2e8f0', border: 'none', borderRadius: '1rem', padding: '1rem', color: formacaoValida ? 'white' : '#94a3b8', fontWeight: 700, fontSize: '1rem', cursor: formacaoValida ? 'pointer' : 'not-allowed', boxShadow: formacaoValida ? '0 4px 20px rgba(22,163,74,0.4)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+          ⚽ Gerar Times Equilibrados
+        </button>
+      </div>
+    </div>
+  )
+
+  // ─── ETAPA 2: Times gerados ───────────────────────────────
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc', paddingBottom: '7rem' }}>
-
-      {/* Header */}
-      <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', paddingTop: '3rem', paddingBottom: '1rem', paddingLeft: '1rem', paddingRight: '1rem' }}>
+      <div style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)', paddingTop: '3rem', paddingBottom: '1rem', padding: '3rem 1rem 1rem' }}>
         <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button onClick={() => router.back()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', padding: '4px' }}>
+          <button onClick={() => setEtapa('config')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)' }}>
             <ArrowLeft size={22} />
           </button>
           <div style={{ textAlign: 'center' }}>
-            <h1 style={{ color: 'white', fontWeight: 700, margin: 0, fontSize: '1.1rem' }}>👕 Montar Times</h1>
+            <h1 style={{ color: 'white', fontWeight: 700, margin: 0, fontSize: '1.1rem' }}>👕 Times</h1>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem', margin: '2px 0 0' }}>
-              {presentes.length} presentes · {presentes.filter(p => p.is_guest).length} convidados
+              {times.length} times · Toque em um jogador para mover
             </p>
           </div>
-          {/* Toggle view */}
-          <button onClick={() => setViewMode(viewMode === 'lista' ? 'vs' : 'lista')}
-            style={{
-              background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '0.5rem',
-              padding: '6px 10px', color: 'white', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
-            }}>
+          <button onClick={() => setViewMode(v => v === 'lista' ? 'vs' : 'lista')}
+            style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '0.5rem', padding: '6px 10px', color: 'white', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
             {viewMode === 'lista' ? '⚔️ VS' : '📋 Lista'}
           </button>
         </div>
@@ -357,299 +814,337 @@ export default function TimesPage() {
 
       <div style={{ maxWidth: '640px', margin: '0 auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-        {presentes.length === 0 && (
-          <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '1rem', padding: '1rem', textAlign: 'center' }}>
-            <p style={{ color: '#92400e', fontWeight: 600, fontSize: '0.875rem' }}>⚠️ Faça o check-in na aba Presença primeiro</p>
-          </div>
-        )}
-
-        {/* Ações */}
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={adicionarTime}
-            style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              backgroundColor: 'white', border: '2px solid #e2e8f0', borderRadius: '0.875rem',
-              padding: '0.75rem', fontWeight: 700, color: '#374151', cursor: 'pointer', fontSize: '0.875rem',
-            }}>
-            <Plus size={16} /> Novo Time
-          </button>
-          <button onClick={sortearTimes} disabled={times.length === 0}
-            style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-              background: times.length === 0 ? '#e2e8f0' : 'linear-gradient(135deg, #f97316, #ea580c)',
-              border: 'none', borderRadius: '0.875rem',
-              padding: '0.75rem', fontWeight: 700,
-              color: times.length === 0 ? '#94a3b8' : 'white',
-              cursor: times.length === 0 ? 'not-allowed' : 'pointer', fontSize: '0.875rem',
-              boxShadow: times.length === 0 ? 'none' : '0 4px 12px rgba(249,115,22,0.4)',
-            }}>
-            <Shuffle size={16} /> 🎲 Sortear
-          </button>
+        {/* Resumo de scores */}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${times.length}, 1fr)`, gap: '0.5rem' }}>
+          {times.map((t, i) => {
+            const media = scoreMediaTime(t)
+            return (
+              <div key={i} style={{ backgroundColor: 'white', borderRadius: '0.875rem', padding: '0.75rem', textAlign: 'center' as const, border: `2px solid ${t.color}33`, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '9999px', backgroundColor: t.color, margin: '0 auto 4px' }} />
+                <p style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{t.name}</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: scoreColor(media), margin: 0 }}>{media.toFixed(1)}</p>
+                <p style={{ fontSize: '0.6rem', color: '#94a3b8', margin: 0 }}>⭐ score</p>
+              </div>
+            )
+          })}
         </div>
 
-        {/* Sem time */}
-        {semTime.length > 0 && (
-          <div style={{ backgroundColor: 'white', borderRadius: '1rem', border: '2px dashed #cbd5e1', overflow: 'hidden' }}>
-            <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', margin: 0 }}>
-                ⏳ Sem time — {semTime.length} jogador{semTime.length !== 1 ? 'es' : ''}
+        {/* Sem time — visível no modo manual ou quando há jogadores não alocados */}
+        {(() => {
+          const chavesTimes = new Set(times.flatMap(t => t.jogadores.map(jt => jt.jogador.key)))
+          const semTime = presentes.filter(j => !chavesTimes.has(j.key))
+          if (semTime.length === 0) return null
+          return (
+            <div style={{ backgroundColor: 'white', borderRadius: '1rem', border: '2px dashed #cbd5e1', overflow: 'hidden' }}>
+              <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', margin: 0 }}>
+                  ⏳ Sem time — {semTime.length} jogador{semTime.length !== 1 ? 'es' : ''}
+                </p>
+              </div>
+              {semTime.map(j => {
+                const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
+                const isMovendo = movendo?.jt.jogador.key === j.key
+                return (
+                  <div key={j.key} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 1rem', borderBottom: '1px solid #f8fafc', backgroundColor: isMovendo ? '#f0fdf4' : 'white' }}>
+                    <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                      {j.photo_url ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b' }}>{initials}</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b', margin: 0 }}>{j.full_name.split(' ')[0]}</p>
+                      <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>{j.position_1 ? `${posicaoIcon[j.position_1] ?? ''} ${j.position_1}` : '—'}</p>
+                    </div>
+                    {/* Botão mover para time */}
+                    <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' as const, justifyContent: 'flex-end' }}>
+                      {times.map((t, i) => (
+                        <button key={i} onClick={() => {
+                          // Cria JogadorNoTime para jogador sem time
+                          const pos = j.position_1 ?? 'meia'
+                          const jt: JogadorNoTime = { jogador: j, posicaoNoTime: pos, scoreNoTime: calcScorePosicional(j, pos, pesos) }
+                          setTimes(prev => prev.map((time, idx) =>
+                            idx === i ? { ...time, jogadores: [...time.jogadores, jt] } : time
+                          ))
+                        }}
+                          style={{ padding: '3px 8px', borderRadius: '0.5rem', border: `1.5px solid ${t.color}`, backgroundColor: t.color + '15', color: t.color, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+                          +{t.name.split(' ')[1] ?? t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
+
+        {/* Times em lista */}
+        {viewMode === 'lista' && times.map((time, timeIdx) => {
+          const media = scoreMediaTime(time)
+          return (
+            <div key={timeIdx} style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <div style={{ padding: '0.875rem 1rem', background: `linear-gradient(135deg, ${time.color}, ${time.color}cc)` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ color: 'white', fontWeight: 800, fontSize: '0.95rem', margin: 0 }}>{time.name} <span style={{ fontSize: '0.75rem', fontWeight: 600, opacity: 0.85 }}>⭐ {media.toFixed(1)}</span></p>
+                    <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', margin: '2px 0 0' }}>{time.jogadores.length} jogadores</p>
+                  </div>
+                  <button onClick={() => setTimeCampo(time)}
+                    style={{ padding: '5px 10px', borderRadius: '0.625rem', border: '1.5px solid rgba(255,255,255,0.5)', backgroundColor: 'rgba(255,255,255,0.15)', color: 'white', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                    🏟️ Ver em campo
+                  </button>
+                </div>
+              </div>
+
+              {/* Jogadores agrupados por posição */}
+              {['goleiro','zagueiro','lateral','volante','meia','atacante'].map(pos => {
+                const jogs = time.jogadores.filter(jt => jt.posicaoNoTime === pos)
+                if (jogs.length === 0) return null
+                return (
+                  <div key={pos}>
+                    <div style={{ padding: '4px 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const }}>{posicaoIcon[pos]} {pos}</span>
+                    </div>
+                    {jogs.map(jt => {
+                      const j = jt.jogador
+                      const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
+                      const isMovendo = movendo?.jt.jogador.key === j.key && movendo?.timeIdx === timeIdx
+                      return (
+                        <div key={j.key} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 1rem', borderBottom: '1px solid #f8fafc', backgroundColor: isMovendo ? '#f0fdf4' : 'white' }}>
+                          <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: time.color + '22', border: `2px solid ${time.color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                            {j.photo_url
+                              ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.65rem', fontWeight: 700, color: time.color }}>{initials}</span>}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                              {pos === 'goleiro' ? '🧤 ' : ''}{j.full_name.split(' ')[0]}
+                              {j.never_edited && <span style={{ marginLeft: '4px', fontSize: '0.6rem', color: '#f59e0b' }}>●</span>}
+                            </p>
+                            <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>
+                              {j.is_guest ? '🎟️ convidado · ' : ''}score: <strong style={{ color: scoreColor(jt.scoreNoTime) }}>{jt.scoreNoTime.toFixed(1)}</strong>
+                            </p>
+                          </div>
+                          {/* Botão mover */}
+                          <button onClick={() => setMovendo(movendo?.jt.jogador.key === j.key && movendo?.timeIdx === timeIdx ? null : { jt, timeIdx })}
+                            style={{ padding: '4px 8px', borderRadius: '0.5rem', border: `1px solid ${isMovendo ? '#16a34a' : '#e2e8f0'}`, backgroundColor: isMovendo ? '#dcfce7' : '#f8fafc', color: isMovendo ? '#15803d' : '#64748b', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                            {isMovendo ? '✓ sel.' : '↕️'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+
+        {/* Painel de swap */}
+        {movendo && (() => {
+          const jogadorA = movendo.jt
+          const timeA = times[movendo.timeIdx]
+          // Todos os jogadores dos outros times para trocar
+          const candidatos: { jt: JogadorNoTime; timeIdx: number }[] = []
+          times.forEach((t, i) => {
+            if (i === movendo.timeIdx) return
+            t.jogadores.forEach(jt => candidatos.push({ jt, timeIdx: i }))
+          })
+          return (
+            <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1rem', border: '2px solid #16a34a', boxShadow: '0 4px 20px rgba(22,163,74,0.2)', position: 'sticky' as const, top: '4.5rem', zIndex: 9 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ width: '2rem', height: '2rem', borderRadius: '9999px', backgroundColor: timeA.color + '22', border: `2px solid ${timeA.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                    {jogadorA.jogador.photo_url
+                      ? <img src={jogadorA.jogador.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: '0.6rem', fontWeight: 700, color: timeA.color }}>{jogadorA.jogador.full_name[0]}</span>}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                      {jogadorA.jogador.full_name.split(' ')[0]}
+                    </p>
+                    <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>
+                      {timeA.name} · score {jogadorA.scoreNoTime.toFixed(1)}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => { setMovendo(null); setBuscaSwap('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.1rem', padding: '4px' }}>✕</button>
+              </div>
+
+              <p style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', margin: '0 0 0.5rem' }}>
+                ↕️ Trocar com quem?
               </p>
-              {/* Campo de busca */}
-              <div style={{ position: 'relative' }}>
-                <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input
-                  value={busca}
-                  onChange={e => setBusca(e.target.value)}
-                  placeholder="Buscar jogador..."
-                  style={{ width: '100%', paddingLeft: '2rem', paddingRight: '0.75rem', paddingTop: '0.5rem', paddingBottom: '0.5rem', border: '1px solid #e2e8f0', borderRadius: '0.625rem', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', backgroundColor: 'white' }}
-                />
+
+              <input
+                type="text"
+                value={buscaSwap}
+                onChange={e => setBuscaSwap(e.target.value)}
+                placeholder="🔍 Filtrar por nome..."
+                style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1.5px solid #e2e8f0', borderRadius: '0.625rem', fontSize: '0.78rem', outline: 'none', marginBottom: '0.5rem', boxSizing: 'border-box' as const }}
+                autoFocus
+              />
+
+              <div style={{ maxHeight: '220px', overflowY: 'auto' as const, display: 'flex', flexDirection: 'column' as const, gap: '2px' }}>
+                {candidatos.filter(({ jt: jtB }) =>
+                  buscaSwap.trim() === '' ||
+                  jtB.jogador.full_name.toLowerCase().includes(buscaSwap.toLowerCase())
+                ).map(({ jt: jtB, timeIdx: timeBIdx }) => {
+                  const timeB = times[timeBIdx]
+                  return (
+                    <button key={jtB.jogador.key}
+                      onClick={() => {
+                        // Swap: A vai para time B, B vai para time A
+                        setTimes(prev => {
+                          const novo = prev.map(t => ({ ...t, jogadores: [...t.jogadores] }))
+                          // Remove A do time A
+                          novo[movendo.timeIdx].jogadores = novo[movendo.timeIdx].jogadores.filter(x => x.jogador.key !== jogadorA.jogador.key)
+                          // Remove B do time B
+                          novo[timeBIdx].jogadores = novo[timeBIdx].jogadores.filter(x => x.jogador.key !== jtB.jogador.key)
+                          // Insere A no time B (mantém posição)
+                          novo[timeBIdx].jogadores.push({
+                            ...jogadorA,
+                            scoreNoTime: calcScorePosicional(jogadorA.jogador, jogadorA.posicaoNoTime, pesos),
+                          })
+                          // Insere B no time A (mantém posição)
+                          novo[movendo.timeIdx].jogadores.push({
+                            ...jtB,
+                            scoreNoTime: calcScorePosicional(jtB.jogador, jtB.posicaoNoTime, pesos),
+                          })
+                          return novo
+                        })
+                        setMovendo(null)
+                        setBuscaSwap('')
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.75rem', borderRadius: '0.75rem', border: `1.5px solid ${timeB.color}33`, backgroundColor: timeB.color + '08', cursor: 'pointer', textAlign: 'left' as const, width: '100%' }}>
+                      <div style={{ width: '1.75rem', height: '1.75rem', borderRadius: '9999px', backgroundColor: timeB.color + '22', border: `1.5px solid ${timeB.color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                        {jtB.jogador.photo_url
+                          ? <img src={jtB.jogador.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <span style={{ fontSize: '0.55rem', fontWeight: 700, color: timeB.color }}>{jtB.jogador.full_name[0]}</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                          {jtB.jogador.full_name.split(' ')[0]}
+                        </p>
+                        <p style={{ fontSize: '0.62rem', color: '#94a3b8', margin: 0 }}>
+                          {timeB.name} · {posicaoIcon[jtB.posicaoNoTime] ?? ''} {jtB.posicaoNoTime} · score {jtB.scoreNoTime.toFixed(1)}
+                        </p>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: timeB.color, fontWeight: 700, flexShrink: 0 }}>⇄</span>
+                    </button>
+                  )
+                })}
+                {/* Opção: mover sem trocar (para sem time) */}
+                <button onClick={() => { moverParaSemTime(jogadorA.jogador.key); setBuscaSwap('') }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.75rem', borderRadius: '0.75rem', border: '1.5px solid #e2e8f0', backgroundColor: '#f8fafc', cursor: 'pointer', textAlign: 'left' as const, width: '100%', marginTop: '4px' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 600 }}>✕ Remover do time (sem troca)</span>
+                </button>
               </div>
             </div>
-            {semTime.filter(j => j.full_name.toLowerCase().includes(busca.toLowerCase())).map(j => (
-              <div key={j.key} style={{
-                display: 'flex', alignItems: 'center', gap: '0.75rem',
-                padding: '0.625rem 1rem', borderBottom: '1px solid rgba(0,0,0,0.04)',
-              }}>
-                {/* Avatar + nome embaixo */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0, width: '3rem' }}>
-                  <div style={{
-                    width: '2.25rem', height: '2.25rem', borderRadius: '9999px',
-                    backgroundColor: '#f1f5f9', border: '2px solid #e2e8f0',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                  }}>
-                    {j.photo_url
-                      ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>
-                          {j.full_name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
-                        </span>}
-                  </div>
-                  <p style={{
-                    fontSize: '0.6rem', fontWeight: 600, color: '#475569',
-                    margin: 0, textAlign: 'center',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    width: '3rem',
-                  }}>
-                    {j.full_name.split(' ')[0]}
-                  </p>
-                </div>
-
-                {/* Botões de destino — ocupam o restante */}
-                <div style={{ flex: 1, display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {times.map((t, idx) => (
-                    <button key={idx} onClick={() => moverJogador(j, idx)}
-                      style={{
-                        padding: '5px 10px', borderRadius: '9999px', border: 'none',
-                        backgroundColor: t.color, color: 'white',
-                        fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
-                        whiteSpace: 'nowrap', flexShrink: 0,
-                      }}>
-                      → {t.name.split(' ').pop()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ======= VIEW: LISTA ======= */}
-        {viewMode === 'lista' && (
-          <>
-            {times.map((time, idx) => (
-              <div key={idx} style={{
-                backgroundColor: 'white', borderRadius: '1rem',
-                overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                border: `2px solid ${time.color}22`,
-              }}>
-                {/* Cabeçalho do time */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '0.875rem 1rem',
-                  background: `linear-gradient(135deg, ${time.color}, ${time.color}dd)`,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '9999px', backgroundColor: 'rgba(255,255,255,0.6)', flexShrink: 0 }} />
-                    <input value={time.name}
-                      onChange={e => { const n = [...times]; n[idx].name = e.target.value; setTimes(n) }}
-                      style={{
-                        fontWeight: 700, fontSize: '1rem', color: 'white',
-                        backgroundColor: 'transparent', border: 'none', outline: 'none', flex: 1,
-                      }} />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <span style={{ backgroundColor: 'rgba(255,255,255,0.25)', color: 'white', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '9999px' }}>
-                      {time.jogadores.length} jog.
-                    </span>
-                    <button onClick={() => { setSemTime([...semTime, ...time.jogadores]); setTimes(times.filter((_, i) => i !== idx)) }}
-                      style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '0.5rem', padding: '4px 8px', color: 'white', cursor: 'pointer', fontSize: '0.7rem' }}>
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-
-                {time.jogadores.length === 0 ? (
-                  <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '1.5rem' }}>
-                    Nenhum jogador — use "Mover" ou clique em Sortear
-                  </p>
-                ) : (
-                  time.jogadores.map(j => (
-                    <JogadorCard key={j.key} j={j} cor={time.color}
-                      onRemover={() => moverJogador(j, -1)} />
-                  ))
-                )}
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* ======= VIEW: VS (lado a lado) ======= */}
-        {viewMode === 'vs' && times.length >= 2 && (
-          <>
-            {/* Mostra de 2 em 2 */}
-            {Array.from({ length: Math.ceil(times.length / 2) }, (_, pairIdx) => {
-              const t1 = times[pairIdx * 2]
-              const t2 = times[pairIdx * 2 + 1]
-              return (
-                <div key={pairIdx}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '0.5rem', alignItems: 'start' }}>
-                    {/* Time 1 */}
-                    <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                      <div style={{ padding: '0.75rem', background: `linear-gradient(135deg, ${t1.color}, ${t1.color}cc)`, textAlign: 'center' }}>
-                        <p style={{ color: 'white', fontWeight: 800, fontSize: '0.9rem', margin: 0 }}>{t1.name}</p>
-                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', margin: '2px 0 0' }}>{t1.jogadores.length} jogadores</p>
-                      </div>
-                      {t1.jogadores.map(j => {
-                        const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
-                        return (
-                          <div key={j.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 8px', borderBottom: '1px solid #f8fafc' }}>
-                            <div style={{
-                              width: '26px', height: '26px', borderRadius: '9999px', flexShrink: 0,
-                              backgroundColor: t1.color + '22', border: `2px solid ${t1.color}55`,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                            }}>
-                              {j.photo_url
-                                ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                : <span style={{ fontSize: '0.6rem', fontWeight: 700, color: t1.color }}>{initials}</span>}
-                            </div>
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <p style={{ fontSize: '0.72rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {j.full_name.split(' ')[0]}
-                              </p>
-                              <p style={{ fontSize: '0.58rem', color: '#94a3b8', margin: 0 }}>
-                                {j.is_guest ? '🎟️' : j.position_1 ? `${posicaoIcon[j.position_1] ?? ''} ${j.position_1}` : '—'}
-                              </p>
-                            </div>
-                            <button onClick={() => moverJogador(j, -1)}
-                              style={{ width: '18px', height: '18px', borderRadius: '9999px', backgroundColor: '#fee2e2', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              ✕
-                            </button>
-                          </div>
-                        )
-                      })}
-                      {t1.jogadores.length === 0 && <p style={{ textAlign: 'center', color: '#cbd5e1', fontSize: '0.75rem', padding: '1rem' }}>Vazio</p>}
-                    </div>
-
-                    {/* VS */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: '3rem', gap: '4px' }}>
-                      <div style={{
-                        width: '36px', height: '36px', borderRadius: '9999px',
-                        background: 'linear-gradient(135deg, #1e293b, #334155)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-                      }}>
-                        <span style={{ color: 'white', fontWeight: 900, fontSize: '0.65rem', letterSpacing: '0.05em' }}>VS</span>
-                      </div>
-                    </div>
-
-                    {/* Time 2 */}
-                    {t2 ? (
-                      <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                        <div style={{ padding: '0.75rem', background: `linear-gradient(135deg, ${t2.color}, ${t2.color}cc)`, textAlign: 'center' }}>
-                          <p style={{ color: 'white', fontWeight: 800, fontSize: '0.9rem', margin: 0 }}>{t2.name}</p>
-                          <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', margin: '2px 0 0' }}>{t2.jogadores.length} jogadores</p>
-                        </div>
-                        {t2.jogadores.map(j => {
-                          const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
-                          return (
-                            <div key={j.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 8px', borderBottom: '1px solid #f8fafc' }}>
-                              <div style={{
-                                width: '26px', height: '26px', borderRadius: '9999px', flexShrink: 0,
-                                backgroundColor: t2.color + '22', border: `2px solid ${t2.color}55`,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                              }}>
-                                {j.photo_url
-                                  ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                  : <span style={{ fontSize: '0.6rem', fontWeight: 700, color: t2.color }}>{initials}</span>}
-                              </div>
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <p style={{ fontSize: '0.72rem', fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {j.full_name.split(' ')[0]}
-                                </p>
-                                <p style={{ fontSize: '0.58rem', color: '#94a3b8', margin: 0 }}>
-                                  {j.is_guest ? '🎟️' : j.position_1 ? `${posicaoIcon[j.position_1] ?? ''} ${j.position_1}` : '—'}
-                                </p>
-                              </div>
-                              <button onClick={() => moverJogador(j, -1)}
-                                style={{ width: '18px', height: '18px', borderRadius: '9999px', backgroundColor: '#fee2e2', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                ✕
-                              </button>
-                            </div>
-                          )
-                        })}
-                        {t2.jogadores.length === 0 && <p style={{ textAlign: 'center', color: '#cbd5e1', fontSize: '0.75rem', padding: '1rem' }}>Vazio</p>}
-                      </div>
-                    ) : <div />}
-                  </div>
-                </div>
-              )
-            })}
-          </>
-        )}
-
-        {viewMode === 'vs' && times.length < 2 && (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-            <p>Crie pelo menos 2 times para ver o modo VS ⚔️</p>
-          </div>
-        )}
-
-        {times.length === 0 && presentes.length > 0 && (
-          <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-            <p style={{ fontSize: '3rem', margin: '0 0 0.5rem' }}>👕</p>
-            <p style={{ color: '#64748b', fontWeight: 600 }}>Clique em "Novo Time" para começar</p>
-            <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginTop: '0.25rem' }}>Ou crie 2 times e use o Sortear 🎲</p>
-          </div>
-        )}
+          )
+        })()}
       </div>
 
-      {/* Erro de validação goleiro */}
+      {/* Erro goleiro */}
       {erroGoleiro && (
         <div style={{ position: 'fixed', bottom: '9rem', left: 0, right: 0, padding: '0 1rem', zIndex: 41 }}>
           <div style={{ maxWidth: '640px', margin: '0 auto', backgroundColor: '#fee2e2', border: '1px solid #dc2626', borderRadius: '1rem', padding: '0.875rem 1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>⚠️</span>
-            <p style={{ color: '#dc2626', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>{erroGoleiro}</p>
-            <button onClick={() => setErroGoleiro(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', flexShrink: 0, padding: '0 4px', fontWeight: 700 }}>✕</button>
+            <span>⚠️</span>
+            <p style={{ color: '#dc2626', fontSize: '0.85rem', fontWeight: 600, margin: 0, flex: 1 }}>{erroGoleiro}</p>
+            <button onClick={() => setErroGoleiro(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontWeight: 700 }}>✕</button>
           </div>
         </div>
       )}
 
-      {/* Botão salvar fixo */}
-      {times.length > 0 && (
-        <div style={{ position: 'fixed', bottom: '5rem', left: 0, right: 0, padding: '0 1rem', zIndex: 40 }}>
-          <div style={{ maxWidth: '640px', margin: '0 auto' }}>
-            <button onClick={salvarTimes} disabled={saving}
-              style={{
-                width: '100%', background: saving ? '#86efac' : 'linear-gradient(135deg, #16a34a, #15803d)',
-                border: 'none', borderRadius: '1rem', padding: '1rem',
-                color: 'white', fontWeight: 700, fontSize: '1rem', cursor: saving ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                boxShadow: '0 4px 20px rgba(22,163,74,0.4)',
-              }}>
-              {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
-              {saving ? 'Salvando...' : '💾 Salvar Times'}
-            </button>
-          </div>
+      {/* Botão salvar */}
+      <div style={{ position: 'fixed', bottom: '5rem', left: 0, right: 0, padding: '0 1rem', zIndex: 40 }}>
+        <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', gap: '0.5rem' }}>
+          <button onClick={() => { setEtapa('config'); setTimes([]) }}
+            style={{ padding: '1rem', borderRadius: '1rem', border: '2px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: '#64748b', fontSize: '0.82rem' }}>
+            <RefreshCw size={16} /> Refazer
+          </button>
+          <button onClick={salvarTimes} disabled={saving}
+            style={{ flex: 1, background: saving ? '#86efac' : 'linear-gradient(135deg, #16a34a, #15803d)', border: 'none', borderRadius: '1rem', padding: '1rem', color: 'white', fontWeight: 700, fontSize: '1rem', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', boxShadow: '0 4px 20px rgba(22,163,74,0.4)' }}>
+            {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+            {saving ? 'Salvando...' : '💾 Salvar Times'}
+          </button>
         </div>
-      )}
+      </div>
+
+      {/* Modal visualização em campo */}
+      {timeCampo && (() => {
+        const posOrdem = ['atacante','meia','volante','lateral','zagueiro','goleiro']
+        const jogsPorPos: Record<string, JogadorNoTime[]> = {}
+        posOrdem.forEach(pos => {
+          jogsPorPos[pos] = timeCampo.jogadores.filter(jt => jt.posicaoNoTime === pos)
+        })
+        // Filtra posições com jogadores
+        const posComJogs = posOrdem.filter(pos => jogsPorPos[pos].length > 0)
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backgroundColor: 'rgba(0,0,0,0.85)' }}>
+            <div style={{ width: '100%', maxWidth: '420px', maxHeight: '90vh', overflowY: 'auto' as const, borderRadius: '1.25rem', overflow: 'hidden', boxShadow: '0 25px 80px rgba(0,0,0,0.5)' }}>
+              {/* Header */}
+              <div style={{ background: `linear-gradient(135deg, ${timeCampo.color}, ${timeCampo.color}cc)`, padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ color: 'white', fontWeight: 800, fontSize: '1rem', margin: 0 }}>{timeCampo.name}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: '2px 0 0' }}>⭐ {scoreMediaTime(timeCampo).toFixed(1)} · {timeCampo.jogadores.length} jogadores</p>
+                </div>
+                <button onClick={() => setTimeCampo(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '9999px', width: '32px', height: '32px', color: 'white', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+
+              {/* Campo */}
+              <div style={{
+                background: 'linear-gradient(180deg, #15803d 0%, #16a34a 20%, #15803d 40%, #16a34a 60%, #15803d 80%, #16a34a 100%)',
+                padding: '1rem 0.5rem',
+                minHeight: '520px',
+                position: 'relative' as const,
+                display: 'flex',
+                flexDirection: 'column' as const,
+                justifyContent: 'space-between',
+              }}>
+                {/* Linhas do campo */}
+                <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' as const }}>
+                  {/* Linha central */}
+                  <div style={{ position: 'absolute', top: '50%', left: '5%', right: '5%', height: '2px', backgroundColor: 'rgba(255,255,255,0.3)' }} />
+                  {/* Círculo central */}
+                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '80px', height: '80px', borderRadius: '9999px', border: '2px solid rgba(255,255,255,0.3)' }} />
+                  {/* Área do goleiro (base) */}
+                  <div style={{ position: 'absolute', bottom: '2%', left: '25%', right: '25%', height: '12%', border: '2px solid rgba(255,255,255,0.3)', borderTop: 'none' }} />
+                  {/* Área do goleiro (topo) */}
+                  <div style={{ position: 'absolute', top: '2%', left: '25%', right: '25%', height: '12%', border: '2px solid rgba(255,255,255,0.3)', borderBottom: 'none' }} />
+                </div>
+
+                {/* Linhas de jogadores por posição — de cima (atacante) pra baixo (goleiro) */}
+                {posComJogs.map(pos => (
+                  <div key={pos} style={{ display: 'flex', justifyContent: 'space-evenly', alignItems: 'center', padding: '0.5rem 0', position: 'relative', zIndex: 1 }}>
+                    {jogsPorPos[pos].map(jt => {
+                      const j = jt.jogador
+                      const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+                      const primeiroNome = j.full_name.split(' ')[0]
+                      return (
+                        <div key={j.key} style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: '4px', maxWidth: '64px' }}>
+                          <div style={{
+                            width: '48px', height: '48px', borderRadius: '9999px',
+                            border: `3px solid ${timeCampo.color === '#16a34a' ? 'white' : timeCampo.color}`,
+                            backgroundColor: 'rgba(0,0,0,0.3)',
+                            overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                          }}>
+                            {j.photo_url
+                              ? <img src={j.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'white' }}>{initials}</span>}
+                          </div>
+                          <div style={{ backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: '0.375rem', padding: '2px 6px', textAlign: 'center' as const }}>
+                            <p style={{ fontSize: '0.62rem', fontWeight: 700, color: 'white', margin: 0, maxWidth: '56px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{primeiroNome}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

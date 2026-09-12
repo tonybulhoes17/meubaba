@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, Loader2, Save, Minus, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { ArrowLeft, Plus, Loader2, Save, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Team { id: string; name: string; color: string }
@@ -184,12 +184,7 @@ export default function JogosPage() {
     setJogos(novos)
   }
 
-  function alterarPlacar(idx: number, lado: 'home' | 'away', delta: number) {
-    const novos = [...jogos]
-    if (lado === 'home') novos[idx].home_score = Math.max(0, novos[idx].home_score + delta)
-    else novos[idx].away_score = Math.max(0, novos[idx].away_score + delta)
-    setJogos(novos)
-  }
+  // Placar calculado automaticamente pelos gols — alterarPlacar não é mais usada
 
   function abrirModalEvento(idx: number, tipo: 'goal' | 'assist' | 'yellow_card' | 'red_card') {
     setJogoIdx(idx)
@@ -212,6 +207,13 @@ export default function JogosPage() {
     })
     setJogos(novos)
     setModalAberto(false)
+  }
+
+  // Calcula placar automático contando eventos de gol
+  function calcPlacar(jogo: Match): { home: number; away: number } {
+    const home = jogo.eventos.filter(e => e.event_type === 'goal' && e.team_id === jogo.home_team_id).length
+    const away = jogo.eventos.filter(e => e.event_type === 'goal' && e.team_id === jogo.away_team_id).length
+    return { home, away }
   }
 
   function removerEvento(jogoIdx: number, evIdx: number) {
@@ -293,8 +295,8 @@ export default function JogosPage() {
         round_id: roundId,
         home_team_id: jogo.home_team_id,
         away_team_id: jogo.away_team_id,
-        home_score: jogo.home_score ?? 0,
-        away_score: jogo.away_score ?? 0,
+        home_score: calcPlacar(jogo).home,
+        away_score: calcPlacar(jogo).away,
         match_order: jogo.match_order,
       }).select().single()
 
@@ -397,31 +399,21 @@ export default function JogosPage() {
                   </select>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.5rem', marginBottom: jogo.expandido ? '1rem' : '0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <button onClick={() => alterarPlacar(idx, 'home', -1)}
-                      style={{ width: '36px', height: '36px', borderRadius: '0.75rem', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Minus size={15} color="#64748b" />
-                    </button>
-                    <span style={{ fontSize: '2.5rem', fontWeight: 900, color: '#1e293b', width: '2.5rem', textAlign: 'center', lineHeight: 1 }}>{jogo.home_score}</span>
-                    <button onClick={() => alterarPlacar(idx, 'home', 1)}
-                      style={{ width: '36px', height: '36px', borderRadius: '0.75rem', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Plus size={15} color="#64748b" />
-                    </button>
-                  </div>
-                  <span style={{ fontSize: '1.5rem', color: '#cbd5e1', fontWeight: 700 }}>×</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <button onClick={() => alterarPlacar(idx, 'away', -1)}
-                      style={{ width: '36px', height: '36px', borderRadius: '0.75rem', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Minus size={15} color="#64748b" />
-                    </button>
-                    <span style={{ fontSize: '2.5rem', fontWeight: 900, color: '#1e293b', width: '2.5rem', textAlign: 'center', lineHeight: 1 }}>{jogo.away_score}</span>
-                    <button onClick={() => alterarPlacar(idx, 'away', 1)}
-                      style={{ width: '36px', height: '36px', borderRadius: '0.75rem', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Plus size={15} color="#64748b" />
-                    </button>
-                  </div>
-                </div>
+                {/* Placar automático — calculado pelos gols registrados */}
+                {(() => {
+                  const pl = calcPlacar(jogo)
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.5rem', marginBottom: jogo.expandido ? '1rem' : '0', padding: '0.5rem 0' }}>
+                      <span style={{ fontSize: '3rem', fontWeight: 900, lineHeight: 1, color: jogo.homeTeam?.color ?? '#1e293b', minWidth: '2.5rem', textAlign: 'center' }}>
+                        {pl.home}
+                      </span>
+                      <span style={{ fontSize: '1.5rem', color: '#cbd5e1', fontWeight: 700 }}>×</span>
+                      <span style={{ fontSize: '3rem', fontWeight: 900, lineHeight: 1, color: jogo.awayTeam?.color ?? '#1e293b', minWidth: '2.5rem', textAlign: 'center' }}>
+                        {pl.away}
+                      </span>
+                    </div>
+                  )
+                })()}
 
                 {jogo.expandido && (
                   <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.875rem' }}>

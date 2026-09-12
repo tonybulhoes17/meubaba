@@ -31,6 +31,7 @@ export default function GrupoDashboard() {
   const [topArtilheiros, setTopArtilheiros] = useState<{ user_id: string; nome: string; foto: string | null; initials: string; gols: number }[]>([])
   const [enquetesAbertas, setEnquetesAbertas] = useState<{ id: string; title: string; closes_at: string }[]>([])
   const [ultimoCraque, setUltimoCraque] = useState<{ nome: string; foto: string | null; initials: string; rodada: string } | null>(null)
+  const [ultimaBolaMurcha, setUltimaBolaMurcha] = useState<{ nome: string; foto: string | null; initials: string; rodada: string } | null>(null)
   const [ultimoParedao, setUltimoParedao] = useState<{ nome: string; foto: string | null; initials: string; rodada: string } | null>(null)
   const [rodadaNotasAberta, setRodadaNotasAberta] = useState<{ id: string; title: string } | null>(null)
   const [minhaNotaInfo, setMinhaNotaInfo] = useState<{ media: number; posicao: number } | null>(null)
@@ -312,6 +313,45 @@ export default function GrupoDashboard() {
           })
         }
       }
+
+      // Última Bola Murcha
+      const { data: ultimaPollBM } = await supabase
+        .from('polls')
+        .select('id, round_id, rounds(title, scheduled_date)')
+        .eq('group_id', groupId)
+        .eq('type', 'bola_murcha')
+        .lt('closes_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (ultimaPollBM) {
+        const { data: opcoesBM } = await supabase
+          .from('poll_options')
+          .select('id, user_id, label, profile:profiles(full_name, photo_url)')
+          .eq('poll_id', ultimaPollBM.id)
+
+        const { data: votosBM } = await supabase
+          .from('poll_votes').select('option_id').eq('poll_id', ultimaPollBM.id)
+
+        if (opcoesBM && opcoesBM.length > 0) {
+          const contagemBM: Record<string, number> = {}
+          for (const v of votosBM ?? []) contagemBM[v.option_id] = (contagemBM[v.option_id] ?? 0) + 1
+          const vencedorBM = opcoesBM.reduce((a: any, b: any) => (contagemBM[b.id] ?? 0) > (contagemBM[a.id] ?? 0) ? b : a)
+          const profBM = vencedorBM.profile as any
+          const nomeBM = profBM?.full_name ?? vencedorBM.label ?? 'Jogador'
+          const roundBM = ultimaPollBM.rounds as any
+          const dataRodadaBM = roundBM?.scheduled_date
+            ? new Date(roundBM.scheduled_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+            : ''
+          setUltimaBolaMurcha({
+            nome: nomeBM,
+            foto: profBM?.photo_url ?? null,
+            initials: nomeBM.split(' ').map((n: string) => n[0]).slice(0, 2).join(''),
+            rodada: roundBM?.title ?? `Rodada de ${dataRodadaBM}`,
+          })
+        }
+      }
     }
 
     // Enquetes abertas
@@ -396,6 +436,7 @@ export default function GrupoDashboard() {
     { icon: '🗳️', label: 'Enquetes', desc: 'Votações e enquetes', href: `/grupos/${groupId}/enquetes` },
     { icon: '🏁', label: 'Histórico', desc: 'Temporadas encerradas', href: `/grupos/${groupId}/historico` },
     { icon: '💰', label: 'Financeiro', desc: 'Mensalidades e pagamentos', href: `/grupos/${groupId}/financeiro` },
+    ...(isAdmin ? [{ icon: '⭐', label: 'Scores', desc: 'Avaliação dos jogadores', href: `/grupos/${groupId}/scores` }] : []),
     { icon: '💬', label: 'Chat', desc: 'Conversa do grupo', href: `/grupos/${groupId}/chat` },
   ]
 
@@ -650,6 +691,35 @@ export default function GrupoDashboard() {
               </p>
               <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: '2px 0 0' }}>
                 {ultimoParedao.rodada}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Última Bola Murcha */}
+        {ultimaBolaMurcha && (
+          <div style={{
+            background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+            borderRadius: '1rem', padding: '1rem', boxShadow: '0 4px 16px rgba(220,38,38,0.3)',
+            display: 'flex', alignItems: 'center', gap: '1rem',
+          }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div style={{ width: '3.5rem', height: '3.5rem', borderRadius: '9999px', backgroundColor: 'rgba(255,255,255,0.2)', border: '3px solid rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                {ultimaBolaMurcha.foto
+                  ? <img src={ultimaBolaMurcha.foto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: '1rem', fontWeight: 700, color: 'white' }}>{ultimaBolaMurcha.initials}</span>}
+              </div>
+              <div style={{ position: 'absolute', bottom: '-4px', right: '-4px', fontSize: '1.1rem' }}>💩</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>
+                💩 Bola Murcha da última rodada
+              </p>
+              <p style={{ color: 'white', fontSize: '1rem', fontWeight: 800, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ultimaBolaMurcha.nome}
+              </p>
+              <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', margin: '2px 0 0' }}>
+                {ultimaBolaMurcha.rodada}
               </p>
             </div>
           </div>

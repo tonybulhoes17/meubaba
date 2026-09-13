@@ -368,16 +368,59 @@ export default function RodadaPage() {
     // Membros com check-in
     const checkedInMembers = membros.filter(m => m.checked_in)
 
-    // Membros sem goleiros — para Craque e Bola Murcha
-    const membrosLineField = checkedInMembers.filter(m => !goleirosIds.has(m.user_id))
+    // Busca substitutos que entraram em jogo via match_events
+    const { data: subsData } = await supabase
+      .from('match_events')
+      .select('user_id, event_type, profile:profiles(full_name)')
+      .eq('round_id', roundId)
+      .eq('event_type', 'substitution')
+      .not('user_id', 'is', null)
 
-    // Goleiros: busca diretamente do team_players (independente do check-in)
-    const membrosGoleiros = (teamPlayersData ?? [])
+    // IDs de quem entrou como substituto
+    const subsIds = new Set((subsData ?? []).map((s: any) => s.user_id))
+
+    // Membros sem goleiros — para Craque e Bola Murcha
+    // Inclui substitutos que entraram em campo (mesmo sem check-in inicial)
+    const membrosLineFieldBase = checkedInMembers.filter(m => !goleirosIds.has(m.user_id))
+    const subsLinha = (subsData ?? [])
+      .filter((s: any) => s.user_id && !goleirosIds.has(s.user_id))
+      .filter((s: any) => !membrosLineFieldBase.some((m: any) => m.user_id === s.user_id))
+      .map((s: any) => ({
+        user_id: s.user_id,
+        full_name: (s.profile as any)?.full_name ?? 'Jogador',
+      }))
+    const membrosLineField = [...membrosLineFieldBase, ...subsLinha]
+
+    // Goleiros: busca de team_players + substitutos goleiros de match_events
+    const goleirosEscalados = (teamPlayersData ?? [])
       .filter((tp: any) => tp.is_goalkeeper && tp.user_id)
       .map((tp: any) => ({
         user_id: tp.user_id,
         full_name: (tp.profile as any)?.full_name ?? 'Goleiro',
       }))
+
+    // Goleiros substitutos: quem está em match_events com is_goalkeeper=true
+    // (ou quem tem position_1=goleiro e entrou como sub)
+    const { data: subsGolData } = await supabase
+      .from('match_events')
+      .select('user_id, profile:profiles(full_name, position_1)')
+      .eq('round_id', roundId)
+      .eq('event_type', 'substitution')
+      .not('user_id', 'is', null)
+
+    const subsGoleiros = (subsGolData ?? [])
+      .filter((s: any) => {
+        const pos = (s.profile as any)?.position_1
+        return pos === 'goleiro' && !goleirosIds.has(s.user_id)
+      })
+      .filter((s: any, idx: number, arr: any[]) => arr.findIndex(x => x.user_id === s.user_id) === idx)
+      .map((s: any) => ({
+        user_id: s.user_id,
+        full_name: (s.profile as any)?.full_name ?? 'Goleiro',
+      }))
+
+    const membrosGoleiros = [...goleirosEscalados, ...subsGoleiros]
+      .filter((g, idx, arr) => arr.findIndex(x => x.user_id === g.user_id) === idx)
 
     // Enquetes Craque e Bola Murcha (sem goleiros)
     if (membrosLineField.length > 0) {

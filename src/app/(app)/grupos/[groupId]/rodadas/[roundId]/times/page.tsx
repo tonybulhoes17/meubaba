@@ -391,6 +391,7 @@ export default function TimesPage() {
   // Jogador sendo movido manualmente
   const [movendo, setMovendo] = useState<{ jt: JogadorNoTime; timeIdx: number } | null>(null)
   const [buscaSwap, setBuscaSwap] = useState('')
+  const [buscaSemTime, setBuscaSemTime] = useState('')
   const [timeCampo, setTimeCampo] = useState<Time | null>(null)
 
   useEffect(() => { fetchData() }, [roundId])
@@ -837,11 +838,24 @@ export default function TimesPage() {
           return (
             <div style={{ backgroundColor: 'white', borderRadius: '1rem', border: '2px dashed #cbd5e1', overflow: 'hidden' }}>
               <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', margin: 0 }}>
-                  ⏳ Sem time — {semTime.length} jogador{semTime.length !== 1 ? 'es' : ''}
-                </p>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: buscaSemTime || semTime.length > 5 ? '0.5rem' : '0' }}>
+                  <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', margin: 0 }}>
+                    ⏳ Sem time — {semTime.length} jogador{semTime.length !== 1 ? 'es' : ''}
+                  </p>
+                </div>
+                {semTime.length > 5 && (
+                  <input
+                    type="text"
+                    value={buscaSemTime}
+                    onChange={e => setBuscaSemTime(e.target.value)}
+                    placeholder="🔍 Buscar jogador..."
+                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1.5px solid #e2e8f0', borderRadius: '0.625rem', fontSize: '0.78rem', outline: 'none', boxSizing: 'border-box' as const, backgroundColor: 'white' }}
+                  />
+                )}
               </div>
-              {semTime.map(j => {
+              {semTime
+                .filter(j => buscaSemTime.trim() === '' || j.full_name.toLowerCase().includes(buscaSemTime.toLowerCase()))
+                .map(j => {
                 const initials = j.full_name.split(' ').map(n => n[0]).slice(0, 2).join('')
                 const isMovendo = movendo?.jt.jogador.key === j.key
                 return (

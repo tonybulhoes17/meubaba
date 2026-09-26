@@ -1591,7 +1591,7 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
         const sm: Record<string, number> = {}
         for (const s of scores ?? []) {
           rawMap[s.user_id] = s
-          const vals = CRITERIOS_KEYS.map(c => s[c] ?? 3)
+          const vals = CRITERIOS_KEYS.map(c => (s as any)[c] ?? 3)
           sm[s.user_id] = Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length * 10) / 10
         }
         setScoresRaw(rawMap)
@@ -1604,7 +1604,7 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
           for (const [posicao, pesos] of Object.entries(pm) as [string, Record<string, number>][]) {
             let soma = 0, totalPeso = 0
             for (const c of CRITERIOS_KEYS) {
-              soma += (s[c] ?? 3) * (pesos[c] ?? 2)
+              soma += ((s as any)[c] ?? 3) * (pesos[c] ?? 2)
               totalPeso += (pesos[c] ?? 2)
             }
             sp[s.user_id][posicao] = totalPeso > 0 ? Math.round(soma / totalPeso * 10) / 10 : 3

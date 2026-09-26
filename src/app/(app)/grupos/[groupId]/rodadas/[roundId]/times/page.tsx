@@ -937,11 +937,19 @@ export default function TimesPage() {
                               {j.is_guest ? '🎟️ convidado · ' : ''}score: <strong style={{ color: scoreColor(jt.scoreNoTime) }}>{jt.scoreNoTime.toFixed(1)}</strong>
                             </p>
                           </div>
-                          {/* Botão mover */}
-                          <button onClick={() => setMovendo(movendo?.jt.jogador.key === j.key && movendo?.timeIdx === timeIdx ? null : { jt, timeIdx })}
-                            style={{ padding: '4px 8px', borderRadius: '0.5rem', border: `1px solid ${isMovendo ? '#16a34a' : '#e2e8f0'}`, backgroundColor: isMovendo ? '#dcfce7' : '#f8fafc', color: isMovendo ? '#15803d' : '#64748b', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
-                            {isMovendo ? '✓ sel.' : '↕️'}
-                          </button>
+                          {/* Botão trocar (modo automático) ou remover (modo manual) */}
+                          {config.modo === 'manual' ? (
+                            <button onClick={() => moverParaSemTime(j.key)}
+                              title="Remover do time"
+                              style={{ padding: '4px 8px', borderRadius: '0.5rem', border: '1px solid #fca5a5', backgroundColor: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                              ✕
+                            </button>
+                          ) : (
+                            <button onClick={() => setMovendo(movendo?.jt.jogador.key === j.key && movendo?.timeIdx === timeIdx ? null : { jt, timeIdx })}
+                              style={{ padding: '4px 8px', borderRadius: '0.5rem', border: `1px solid ${isMovendo ? '#16a34a' : '#e2e8f0'}`, backgroundColor: isMovendo ? '#dcfce7' : '#f8fafc', color: isMovendo ? '#15803d' : '#64748b', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                              {isMovendo ? '✓ sel.' : '↕️'}
+                            </button>
+                          )}
                         </div>
                       )
                     })}

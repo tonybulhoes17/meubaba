@@ -1530,6 +1530,10 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
   const [subMap, setSubMap] = useState<Record<string, string>>({})
   const [scoreMap, setScoreMap] = useState<Record<string, number>>({})
   const [timeCampo, setTimeCampo] = useState<any | null>(null)
+  const [pesosMap, setPesosMap] = useState<Record<string, Record<string, number>>>({})
+  const [scoresRaw, setScoresRaw] = useState<Record<string, any>>({})
+  // scoresPonderados[userId][posicao] = score ponderado pré-calculado
+  const [scoresPonderados, setScoresPonderados] = useState<Record<string, Record<string, number>>>({})
 
   useEffect(() => {
     async function load() {
@@ -1546,10 +1550,10 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
       if (attIds.length > 0) {
         const { data: atts } = await supabase
           .from('round_attendance')
-          .select('id, guest_name, guest_position_1')
+          .select('id, guest_name, guest_position_1, guest_avg_score')
           .in('id', attIds)
         ;(atts ?? []).forEach((a: any) => {
-          guestMap[a.id] = { guest_name: a.guest_name ?? 'Convidado', guest_position_1: a.guest_position_1 ?? null }
+          guestMap[a.id] = { guest_name: a.guest_name ?? 'Convidado', guest_position_1: a.guest_position_1 ?? null, guest_avg_score: a.guest_avg_score ?? 3 }
         })
       }
       // Injeta dados do convidado no team_players
@@ -1558,7 +1562,7 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
         team_players: (t.team_players ?? []).map((tp: any) => {
           if (!tp.is_guest) return tp
           const g = guestMap[tp.attendance_id] ?? {}
-          return { ...tp, _guest_name: g.guest_name ?? 'Convidado', _guest_pos: g.guest_position_1 ?? null }
+          return { ...tp, _guest_name: g.guest_name ?? 'Convidado', _guest_pos: g.guest_position_1 ?? null, _guest_avg: (g as any).guest_avg_score ?? 3 }
         })
       }))
       setTimes(timesComGuest)
@@ -1567,16 +1571,55 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
       const userIds = (timesData ?? []).flatMap((t: any) =>
         (t.team_players ?? []).filter((tp: any) => !tp.is_guest).map((tp: any) => tp.user_id)
       ).filter(Boolean)
+      // Busca pesos por posição do grupo
+      const CRITERIOS_KEYS = ['velocidade','forca_fisica','passe','chute','marcacao','drible','posicionamento','resistencia','jogo_aereo']
+      const { data: pesosDB } = await supabase
+        .from('position_weights').select('*').eq('group_id', groupId)
+      const pm: Record<string, Record<string, number>> = {}
+      for (const p of pesosDB ?? []) {
+        pm[p.posicao] = {}
+        for (const c of CRITERIOS_KEYS) pm[p.posicao][c] = p[c] ?? 2
+      }
+      setPesosMap(pm)
+
       if (userIds.length > 0) {
         const { data: scores } = await supabase
           .from('player_scores').select('user_id, velocidade, forca_fisica, passe, chute, marcacao, drible, posicionamento, resistencia, jogo_aereo')
           .eq('group_id', groupId).in('user_id', userIds)
+        // Guarda scores raw (com todos os critérios) para cálculo ponderado
+        const rawMap: Record<string, any> = {}
         const sm: Record<string, number> = {}
         for (const s of scores ?? []) {
-          const vals = [s.velocidade, s.forca_fisica, s.passe, s.chute, s.marcacao, s.drible, s.posicionamento, s.resistencia, s.jogo_aereo]
+          rawMap[s.user_id] = s
+          const vals = CRITERIOS_KEYS.map(c => s[c] ?? 3)
           sm[s.user_id] = Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length * 10) / 10
         }
+        setScoresRaw(rawMap)
         setScoreMap(sm)
+
+        // Pré-calcula scores ponderados para todas as combinações jogador×posição
+        const sp: Record<string, Record<string, number>> = {}
+        for (const s of scores ?? []) {
+          sp[s.user_id] = {}
+          for (const [posicao, pesos] of Object.entries(pm) as [string, Record<string, number>][]) {
+            let soma = 0, totalPeso = 0
+            for (const c of CRITERIOS_KEYS) {
+              soma += (s[c] ?? 3) * (pesos[c] ?? 2)
+              totalPeso += (pesos[c] ?? 2)
+            }
+            sp[s.user_id][posicao] = totalPeso > 0 ? Math.round(soma / totalPeso * 10) / 10 : 3
+          }
+          // Fallback: média simples
+          sp[s.user_id]['_geral'] = sm[s.user_id]
+        }
+        setScoresPonderados(sp)
+        // DEBUG — remover após confirmar
+        console.log('=== TimesDisplay DEBUG ===')
+        console.log('groupId:', groupId)
+        console.log('pesosDB length:', pesosDB?.length)
+        console.log('pesosMap keys:', Object.keys(pm))
+        console.log('scores length:', scores?.length)
+        console.log('scoresPonderados sample:', Object.entries(sp).slice(0,2).map(([uid, posMap]) => ({ uid: uid.slice(0,8), posMap })))
       }
 
       // Substituições
@@ -1595,11 +1638,38 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
     load()
   }, [roundId])
 
+  // Retorna score ponderado para um jogador em uma posição
+  function calcScorePonderado(userId: string | null, posicao: string | null, isGuest: boolean, guestAvg?: number): number {
+    if (isGuest) {
+      // Convidado: usa guest_avg_score como nota de todos os critérios
+      // e aplica os pesos da posição (igual ao times/page.tsx)
+      const avg = guestAvg ?? 3
+      const pos = posicao ?? 'meia'
+      const pesos = pesosMap[pos]
+      if (!pesos) return avg
+      // Como todos os critérios têm o mesmo valor (avg), o score ponderado = avg
+      // (pesos se cancelam). Mas mantemos o cálculo correto por consistência.
+      let soma = 0, totalPeso = 0
+      const CRITERIOS_KEYS = ['velocidade','forca_fisica','passe','chute','marcacao','drible','posicionamento','resistencia','jogo_aereo']
+      for (const c of CRITERIOS_KEYS) {
+        soma += avg * (pesos[c] ?? 2)
+        totalPeso += (pesos[c] ?? 2)
+      }
+      return totalPeso > 0 ? Math.round(soma / totalPeso * 10) / 10 : avg
+    }
+    if (!userId) return 3
+    const pos = posicao ?? '_geral'
+    const sp = scoresPonderados[userId]
+    if (sp) return sp[pos] ?? sp['_geral'] ?? scoreMap[userId] ?? 3
+    return scoreMap[userId] ?? 3
+  }
+
   function mediaTime(time: any): number {
     const players = (time.team_players ?? [])
     if (players.length === 0) return 0
     const soma = players.reduce((acc: number, tp: any) => {
-      return acc + (tp.is_guest ? 3 : (scoreMap[tp.user_id] ?? 3))
+      const pos = tp.position_in_team ?? (tp.is_guest ? tp._guest_pos : tp.profile?.position_1) ?? null
+      return acc + calcScorePonderado(tp.user_id, pos, tp.is_guest, tp._guest_avg ?? 3)
     }, 0)
     return Math.round(soma / players.length * 10) / 10
   }

@@ -1546,7 +1546,7 @@ function TimesDisplay({ roundId, groupId }: { roundId: string; groupId: string }
       const attIds = (timesData ?? []).flatMap((t: any) =>
         (t.team_players ?? []).filter((tp: any) => tp.is_guest && tp.attendance_id).map((tp: any) => tp.attendance_id)
       )
-      const guestMap: Record<string, { guest_name: string; guest_position_1: string | null }> = {}
+      const guestMap: Record<string, { guest_name: string; guest_position_1: string | null; guest_avg_score: number }> = {}
       if (attIds.length > 0) {
         const { data: atts } = await supabase
           .from('round_attendance')

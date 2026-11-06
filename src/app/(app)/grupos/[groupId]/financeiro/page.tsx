@@ -17,13 +17,13 @@ interface MemberStatus {
   full_name: string
   photo_url: string | null
   initials: string
-  currentStatus: 'paid' | 'pending' | 'overdue' | 'manual' | null
+  currentStatus: 'paid' | 'pending' | 'overdue' | 'manual' | 'dm' | null
 }
 
 interface MonthStatus {
   month: string        // 'YYYY-MM'
   label: string        // 'Jan 2025'
-  status: 'paid' | 'pending' | 'overdue' | 'manual' | null
+  status: 'paid' | 'pending' | 'overdue' | 'manual' | 'dm' | null
   submission_id: string | null
 }
 
@@ -35,6 +35,19 @@ interface Submission {
   months: string[]
   period_type: string
   amount: number
+  status: 'pending' | 'approved' | 'rejected'
+  rejection_reason: string | null
+  created_at: string
+}
+
+interface DmReq {
+  id: string
+  user_id: string
+  full_name: string
+  photo_url: string | null
+  initials: string
+  months: string[]
+  reason: string
   status: 'pending' | 'approved' | 'rejected'
   rejection_reason: string | null
   created_at: string
@@ -81,6 +94,7 @@ function visibleMonths(): string[] {
 function last12Months(): string[] { return visibleMonths() }
 
 function statusColor(s: string | null) {
+  if (s === 'dm') return { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' }
   if (s === 'paid' || s === 'manual' || s === 'approved') return { bg: '#dcfce7', text: '#15803d', border: '#86efac' }
   if (s === 'pending') return { bg: '#fef9c3', text: '#854d0e', border: '#fde047' }
   if (s === 'rejected') return { bg: '#fee2e2', text: '#b91c1c', border: '#fca5a5' }
@@ -88,6 +102,7 @@ function statusColor(s: string | null) {
 }
 
 function statusIcon(s: string | null) {
+  if (s === 'dm') return '🏥'
   if (s === 'paid' || s === 'manual' || s === 'approved') return '✅'
   if (s === 'pending') return '⏳'
   if (s === 'rejected') return '❌'
@@ -95,6 +110,7 @@ function statusIcon(s: string | null) {
 }
 
 function statusLabel(s: string | null) {
+  if (s === 'dm') return 'DM (isento)'
   if (s === 'paid') return 'Pago'
   if (s === 'manual') return 'Pago (manual)'
   if (s === 'approved') return 'Aprovado ✅'
@@ -102,6 +118,14 @@ function statusLabel(s: string | null) {
   if (s === 'rejected') return 'Recusado ❌'
   return 'Em aberto'
 }
+
+// Ciclo de marcação do admin: aberto → pago → DM → aberto
+function nextStatus(st: string | null): string {
+  if (st === 'paid' || st === 'manual') return 'dm'
+  if (st === 'dm') return 'overdue'
+  return 'manual'
+}
+function isOk(st: string | null) { return st === 'paid' || st === 'manual' || st === 'dm' }
 
 function periodLabel(p: string) {
   if (p === 'monthly') return 'Mensal'
@@ -125,6 +149,9 @@ export default function FinanceiroPage() {
   const [myMonths, setMyMonths] = useState<MonthStatus[]>([])
   const [mySubmissions, setMySubmissions] = useState<Submission[]>([])
   const [myCurrentStatus, setMyCurrentStatus] = useState<string | null>(null)
+
+  const [myDmRequests, setMyDmRequests] = useState<DmReq[]>([])
+  const [dmPendentes, setDmPendentes] = useState<DmReq[]>([])
 
   // Admin
   const [pendentes, setPendentes] = useState<Submission[]>([])
@@ -214,6 +241,15 @@ export default function FinanceiroPage() {
       .limit(10)
 
     setMySubmissions((subs ?? []) as Submission[])
+
+    const { data: dms } = await supabase
+      .from('dm_requests')
+      .select('id, user_id, months, reason, status, rejection_reason, created_at')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    setMyDmRequests((dms ?? []) as DmReq[])
   }
 
   async function fetchAdminData() {
@@ -242,6 +278,25 @@ export default function FinanceiroPage() {
       } as Submission)
     }
     setPendentes(pending)
+
+    const { data: dmSubs } = await supabase
+      .from('dm_requests')
+      .select('id, user_id, months, reason, status, rejection_reason, created_at')
+      .eq('group_id', groupId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+    const dmList: DmReq[] = []
+    for (const d of dmSubs ?? []) {
+      const { data: prof } = await supabase.from('profiles').select('full_name, photo_url').eq('id', d.user_id).single()
+      const nome = prof?.full_name ?? 'Jogador'
+      dmList.push({
+        ...(d as any),
+        full_name: nome,
+        photo_url: prof?.photo_url ?? null,
+        initials: nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase(),
+      } as DmReq)
+    }
+    setDmPendentes(dmList)
 
     // Todos os membros ativos
     const { data: members } = await supabase
@@ -276,7 +331,7 @@ export default function FinanceiroPage() {
     // Ordenar alfabeticamente
     lista.sort((a, b) => a.full_name.localeCompare(b.full_name, 'pt-BR'))
     setAllMembers(lista)
-    setInadimplentes(lista.filter(m => m.currentStatus !== 'paid' && m.currentStatus !== 'manual'))
+    setInadimplentes(lista.filter(m => !isOk(m.currentStatus)))
   }
 
   async function fetchMemberMonths(userId: string) {
@@ -379,7 +434,8 @@ export default function FinanceiroPage() {
 
   // ── Resumo dashboard admin ──
   const cur = currentMonth()
-  const adimplentes = allMembers.filter(m => m.currentStatus === 'paid' || m.currentStatus === 'manual')
+  const adimplentes = allMembers.filter(m => isOk(m.currentStatus))
+  const qtdDm = allMembers.filter(m => m.currentStatus === 'dm').length
   const totalArrecadado = 0 // calculado abaixo
   const valorMes = config?.monthly_fee ?? 100
 
@@ -435,7 +491,7 @@ export default function FinanceiroPage() {
             <div style={{ ...(() => { const c = statusColor(myCurrentStatus); return { backgroundColor: c.bg, border: `1.5px solid ${c.border}`, borderRadius: '1rem', padding: '1.25rem', textAlign: 'center' as const } })() }}>
               <p style={{ fontSize: '2rem', margin: '0 0 0.25rem' }}>{statusIcon(myCurrentStatus)}</p>
               <p style={{ fontSize: '1rem', fontWeight: 700, color: statusColor(myCurrentStatus).text, margin: '0 0 0.25rem' }}>
-                {myCurrentStatus === 'paid' || myCurrentStatus === 'manual' ? 'Você está adimplente' : myCurrentStatus === 'pending' ? 'Pagamento em análise' : 'Você está inadimplente'}
+                {myCurrentStatus === 'dm' ? 'Você está no DM (isento)' : myCurrentStatus === 'paid' || myCurrentStatus === 'manual' ? 'Você está adimplente' : myCurrentStatus === 'pending' ? 'Pagamento em análise' : 'Você está inadimplente'}
               </p>
               <p style={{ fontSize: '0.78rem', color: statusColor(myCurrentStatus).text, margin: 0, opacity: 0.8 }}>
                 {monthLabel(cur)} · R$ {Number(config.monthly_fee).toFixed(2)}
@@ -455,6 +511,12 @@ export default function FinanceiroPage() {
               </div>
             )}
 
+            {/* Solicitar DM */}
+            <button onClick={() => router.push(`/grupos/${groupId}/financeiro/dm`)}
+              style={{ width: '100%', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1.5px solid #93c5fd', borderRadius: '0.875rem', padding: '0.75rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+              🏥 Solicitar DM (lesionado)
+            </button>
+
             {/* Linha do tempo 12 meses */}
             <div style={{ backgroundColor: 'white', borderRadius: '1rem', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
               <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', margin: '0 0 1rem' }}>📅 Últimos 12 meses</p>
@@ -470,7 +532,7 @@ export default function FinanceiroPage() {
                 })}
               </div>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '0.875rem', flexWrap: 'wrap' as const }}>
-                {[['paid','Pago'],['pending','Aguardando'],['overdue','Em aberto']].map(([s, l]) => (
+                {[['paid','Pago'],['dm','DM'],['pending','Aguardando'],['overdue','Em aberto']].map(([s, l]) => (
                   <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                     <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor(s).bg, border: `1px solid ${statusColor(s).border}` }} />
                     <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{l}</span>
@@ -512,6 +574,34 @@ export default function FinanceiroPage() {
                 ))}
               </div>
             )}
+
+            {myDmRequests.length > 0 && (
+              <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+                <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid #f1f5f9' }}>
+                  <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', margin: 0 }}>🏥 Solicitações de DM</p>
+                </div>
+                {myDmRequests.map(d => (
+                  <div key={d.id} style={{ padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1e293b', margin: '0 0 2px' }}>{d.months.map(monthLabel).join(', ')}</p>
+                        <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0 }}>{d.reason}</p>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '3px 8px', borderRadius: '9999px', whiteSpace: 'nowrap' as const,
+                        backgroundColor: d.status === 'approved' ? '#dbeafe' : d.status === 'rejected' ? '#fee2e2' : '#fef9c3',
+                        color: d.status === 'approved' ? '#1d4ed8' : d.status === 'rejected' ? '#b91c1c' : '#854d0e' }}>
+                        {d.status === 'approved' ? 'Aprovado 🏥' : d.status === 'rejected' ? 'Recusado ❌' : 'Aguardando'}
+                      </span>
+                    </div>
+                    {d.status === 'rejected' && d.rejection_reason && (
+                      <div style={{ marginTop: '0.5rem', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '0.5rem', padding: '0.5rem 0.75rem' }}>
+                        <p style={{ fontSize: '0.72rem', color: '#b91c1c', margin: 0 }}><strong>Motivo:</strong> {d.rejection_reason}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
 
@@ -526,7 +616,7 @@ export default function FinanceiroPage() {
                   <button key={tab} onClick={() => setAdminTab(tab)}
                     style={{ flex: 1, padding: '0.75rem 0.25rem', fontSize: '0.68rem', fontWeight: adminTab === tab ? 700 : 500, color: adminTab === tab ? '#16a34a' : '#64748b', background: 'none', border: 'none', borderBottom: `2px solid ${adminTab === tab ? '#16a34a' : 'transparent'}`, cursor: 'pointer', display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: '2px' }}>
                     <span style={{ fontSize: '1rem' }}>{icon}</span>
-                    {tab === 'dashboard' ? 'Resumo' : tab === 'pendentes' ? `Pendentes${pendentes.length > 0 ? ` (${pendentes.length})` : ''}` : tab === 'membros' ? 'Membros' : 'Inadimp.'}
+                    {tab === 'dashboard' ? 'Resumo' : tab === 'pendentes' ? `Pendentes${pendentes.length + dmPendentes.length > 0 ? ` (${pendentes.length + dmPendentes.length})` : ''}` : tab === 'membros' ? 'Membros' : 'Inadimp.'}
                   </button>
                 ))}
               </div>
@@ -547,12 +637,12 @@ export default function FinanceiroPage() {
                       <p style={{ fontSize: '0.7rem', color: '#b91c1c', margin: 0 }}>Inadimplentes</p>
                     </div>
                     <div style={{ backgroundColor: '#fefce8', borderRadius: '0.875rem', padding: '1rem', textAlign: 'center' as const }}>
-                      <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#854d0e', margin: '0 0 2px' }}>{pendentes.length}</p>
+                      <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#854d0e', margin: '0 0 2px' }}>{pendentes.length + dmPendentes.length}</p>
                       <p style={{ fontSize: '0.7rem', color: '#854d0e', margin: 0 }}>Aguardando validação</p>
                     </div>
                     <div style={{ backgroundColor: '#f0fdf4', borderRadius: '0.875rem', padding: '1rem', textAlign: 'center' as const }}>
                       <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#15803d', margin: '0 0 2px' }}>
-                        R$ {(adimplentes.length * valorMes).toFixed(2)}
+                        R$ {((adimplentes.length - qtdDm) * valorMes).toFixed(2)}
                       </p>
                       <p style={{ fontSize: '0.7rem', color: '#15803d', margin: 0 }}>Estimativa arrecadada</p>
                     </div>
@@ -568,12 +658,26 @@ export default function FinanceiroPage() {
               {/* Pendentes */}
               {adminTab === 'pendentes' && (
                 <div>
-                  {pendentes.length === 0 ? (
+                  {dmPendentes.map(d => (
+                    <button key={d.id} onClick={() => router.push(`/grupos/${groupId}/financeiro/dm/${d.id}`)}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc', background: '#f8fbff', border: 'none', cursor: 'pointer', textAlign: 'left' as const }}>
+                      <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                        {d.photo_url ? <img src={d.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#1d4ed8' }}>{d.initials}</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', margin: '0 0 2px' }}>🏥 {d.full_name}</p>
+                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Solicitação de DM · {d.months.map(monthLabel).join(', ')}</p>
+                        <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0 }}>{d.reason}</p>
+                      </div>
+                      <ChevronRight size={16} color="#94a3b8" />
+                    </button>
+                  ))}
+                  {pendentes.length === 0 && dmPendentes.length === 0 ? (
                     <div style={{ padding: '2rem', textAlign: 'center' as const }}>
                       <p style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🎉</p>
                       <p style={{ fontSize: '0.85rem', color: '#64748b' }}>Nenhum pagamento aguardando validação</p>
                     </div>
-                  ) : pendentes.map(sub => (
+                  ) : pendentes.length === 0 ? null : pendentes.map(sub => (
                     <button key={sub.id} onClick={() => router.push(`/grupos/${groupId}/financeiro/${sub.id}`)}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid #f8fafc', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const }}>
                       <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
@@ -633,19 +737,20 @@ export default function FinanceiroPage() {
                               {/* Células dos meses */}
                               {visibleMonths().map(mes => {
                                 const st = allMemberStatuses[m.user_id]?.[mes] ?? null
-                                const isPago = st === 'paid' || st === 'manual'
+                                const isPago = isOk(st)
+                                const isDm = st === 'dm'
                                 const isPending = st === 'pending'
                                 return (
                                   <td key={mes} style={{ padding: '0.25rem 0.375rem', textAlign: 'center' as const, borderBottom: '1px solid #f1f5f9', backgroundColor: mes === currentMonth() ? (idx % 2 === 0 ? '#f9fefb' : '#f4fdf7') : 'transparent' }}>
                                     <button
                                       onClick={() => {
                                         if (isPending) return
-                                        setTableConfirm({ member: m, month: mes, newStatus: isPago ? 'overdue' : 'manual' })
+                                        setTableConfirm({ member: m, month: mes, newStatus: nextStatus(st) })
                                       }}
-                                      title={isPago ? 'Clique para marcar como em aberto' : isPending ? 'Aguardando validação' : 'Clique para marcar como pago'}
+                                      title={isDm ? 'DM — clique para marcar como em aberto' : isPago ? 'Pago — clique para marcar como DM' : isPending ? 'Aguardando validação' : 'Clique para marcar como pago'}
                                       style={{ width: '28px', height: '28px', borderRadius: '0.375rem', border: 'none', cursor: isPending ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem',
-                                        backgroundColor: isPago ? '#dcfce7' : isPending ? '#fef9c3' : '#fee2e2' }}>
-                                      {isPago ? '✅' : isPending ? '⏳' : '❌'}
+                                        backgroundColor: isDm ? '#dbeafe' : isPago ? '#dcfce7' : isPending ? '#fef9c3' : '#fee2e2' }}>
+                                      {isDm ? '🏥' : isPago ? '✅' : isPending ? '⏳' : '❌'}
                                     </button>
                                   </td>
                                 )
@@ -703,7 +808,7 @@ export default function FinanceiroPage() {
 
                 <div style={{ padding: '1rem' }}>
                   <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', margin: '0 0 0.75rem' }}>
-                    📅 Últimos 12 meses · <span style={{ fontWeight: 400, color: '#94a3b8' }}>✅ pago · ❌ em aberto</span>
+                    📅 Últimos 12 meses · <span style={{ fontWeight: 400, color: '#94a3b8' }}>✅ pago · 🏥 DM · ❌ em aberto</span>
                   </p>
 
                   {loadingMember ? (
@@ -722,7 +827,7 @@ export default function FinanceiroPage() {
                           {isPendingConfirm ? (
                             <div style={{ backgroundColor: '#fef9c3', border: '1px solid #fde047', borderRadius: '0.5rem', padding: '0.5rem', marginTop: '0.375rem' }}>
                               <p style={{ fontSize: '0.72rem', fontWeight: 700, color: '#854d0e', margin: '0 0 0.5rem' }}>
-                                ⚠️ Confirmar: marcar como "{confirmManual.newStatus === 'paid' ? 'Pago (manual)' : 'Em aberto'}"?
+                                ⚠️ Confirmar: marcar como "{confirmManual.newStatus === 'manual' ? 'Pago (manual)' : confirmManual.newStatus === 'dm' ? 'DM (isento)' : 'Em aberto'}"?
                               </p>
                               <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <button onClick={aplicarManual} disabled={savingManual}
@@ -746,11 +851,18 @@ export default function FinanceiroPage() {
                           const isPago = m.status === 'paid' || m.status === 'manual'
                           return (
                             <div style={{ display: 'flex', gap: '0.375rem' }}>
-                              {isPago ? (
-                                /* Pago → mostra ✅, clica para reverter */
+                              {m.status === 'dm' ? (
                                 <button
                                   onClick={() => setConfirmManual({ month: m.month, newStatus: 'overdue' })}
-                                  title="Clique para marcar como em aberto"
+                                  title="DM — clique para marcar como em aberto"
+                                  style={{ width: '30px', height: '30px', borderRadius: '0.5rem', backgroundColor: '#dbeafe', border: '1px solid #93c5fd', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>
+                                  🏥
+                                </button>
+                              ) : isPago ? (
+                                /* Pago → mostra ✅, clica para reverter */
+                                <button
+                                  onClick={() => setConfirmManual({ month: m.month, newStatus: 'dm' })}
+                                  title="Clique para marcar como DM"
                                   style={{ width: '30px', height: '30px', borderRadius: '0.5rem', backgroundColor: '#dcfce7', border: '1px solid #86efac', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                   <Check size={14} color="#15803d" />
                                 </button>
@@ -781,7 +893,7 @@ export default function FinanceiroPage() {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '1.25rem', padding: '1.5rem', width: '100%', maxWidth: '360px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <p style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', margin: '0 0 0.5rem' }}>
-              {tableConfirm.newStatus === 'manual' ? '✅ Marcar como pago?' : '❌ Marcar como em aberto?'}
+              {tableConfirm.newStatus === 'manual' ? '✅ Marcar como pago?' : tableConfirm.newStatus === 'dm' ? '🏥 Marcar como DM (isento)?' : '❌ Marcar como em aberto?'}
             </p>
             <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 1.25rem', lineHeight: 1.5 }}>
               <strong>{tableConfirm.member.full_name}</strong> · {monthLabel(tableConfirm.month)}
@@ -792,7 +904,7 @@ export default function FinanceiroPage() {
                 Cancelar
               </button>
               <button onClick={aplicarManualTabela} disabled={savingTable}
-                style={{ flex: 1, backgroundColor: tableConfirm.newStatus === 'manual' ? '#16a34a' : '#b91c1c', color: 'white', border: 'none', borderRadius: '0.75rem', padding: '0.75rem', fontWeight: 700, fontSize: '0.875rem', cursor: savingTable ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                style={{ flex: 1, backgroundColor: tableConfirm.newStatus === 'manual' ? '#16a34a' : tableConfirm.newStatus === 'dm' ? '#2563eb' : '#b91c1c', color: 'white', border: 'none', borderRadius: '0.75rem', padding: '0.75rem', fontWeight: 700, fontSize: '0.875rem', cursor: savingTable ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                 {savingTable ? <Loader2 size={15} className="animate-spin" /> : null}
                 {savingTable ? 'Salvando...' : 'Confirmar'}
               </button>

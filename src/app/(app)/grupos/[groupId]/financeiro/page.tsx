@@ -426,8 +426,11 @@ export default function FinanceiroPage() {
       <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
         {/* ══════════════ VISÃO DO JOGADOR ══════════════ */}
-        {!isAdmin && (
+        {true && (
           <>
+            {isAdmin && (
+              <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', margin: 0 }}>👤 Meu financeiro</p>
+            )}
             {/* Status atual */}
             <div style={{ ...(() => { const c = statusColor(myCurrentStatus); return { backgroundColor: c.bg, border: `1.5px solid ${c.border}`, borderRadius: '1rem', padding: '1.25rem', textAlign: 'center' as const } })() }}>
               <p style={{ fontSize: '2rem', margin: '0 0 0.25rem' }}>{statusIcon(myCurrentStatus)}</p>
@@ -515,6 +518,7 @@ export default function FinanceiroPage() {
         {/* ══════════════ VISÃO DO ADMIN ══════════════ */}
         {isAdmin && (
           <>
+            <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', margin: '0.5rem 0 0' }}>🛠️ Painel do administrador</p>
             {/* Tabs admin */}
             <div style={{ backgroundColor: 'white', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
               <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9' }}>

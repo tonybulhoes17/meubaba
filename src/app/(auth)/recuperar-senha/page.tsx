@@ -20,7 +20,7 @@ export default function RecuperarSenhaPage() {
     setErro('')
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/redefinir-senha`,
+      redirectTo: `${window.location.origin}/api/auth/callback?next=/redefinir-senha`,
     })
 
     if (error) {

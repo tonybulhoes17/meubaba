@@ -30,9 +30,23 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
+  // Link de email do Supabase que caiu na raiz (Site URL) com código de auth:
+  // encaminha para o callback em vez de mandar para o login e perder o código.
+  const sp = request.nextUrl.searchParams
+  if (pathname === '/' && (sp.has('code') || sp.has('token_hash') || sp.has('error_code'))) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/api/auth/callback'
+    return NextResponse.redirect(url)
+  }
+
   // Rotas públicas (não precisam de login)
-  const publicRoutes = ['/login', '/cadastro', '/auth/callback', '/landing']
+  const publicRoutes = ['/login', '/cadastro', '/recuperar-senha', '/redefinir-senha', '/auth/callback', '/api/auth', '/landing']
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
+
+  // Rotas públicas que também devem funcionar para quem JÁ tem sessão
+  // (o link de recuperação cria uma sessão temporária antes de trocar a senha)
+  const allowWhenLoggedIn = ['/redefinir-senha', '/auth/callback', '/api/auth']
+  const isAllowedWhenLoggedIn = allowWhenLoggedIn.some(route => pathname.startsWith(route))
 
   // Redireciona para login se não autenticado e rota protegida
   if (!user && !isPublicRoute) {
@@ -42,7 +56,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Redireciona para grupos se já logado e tenta acessar auth
-  if (user && isPublicRoute && pathname !== '/auth/callback') {
+  if (user && isPublicRoute && !isAllowedWhenLoggedIn) {
     const url = request.nextUrl.clone()
     url.pathname = '/grupos'
     return NextResponse.redirect(url)

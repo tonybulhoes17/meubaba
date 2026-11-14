@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Eye, EyeOff } from 'lucide-react'
@@ -10,6 +10,16 @@ import { cn } from '@/lib/utils'
 export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
+
+  // Link de recuperação no formato antigo (#access_token=...&type=recovery),
+  // como o enviado pelo painel do Supabase, pode cair aqui após o redirect da
+  // raiz. Encaminha para a tela de nova senha preservando o hash.
+  useEffect(() => {
+    const hash = window.location.hash
+    if (hash.includes('type=recovery') || (hash.includes('error_code=') && hash.includes('otp'))) {
+      window.location.replace(`/redefinir-senha${hash}`)
+    }
+  }, [])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

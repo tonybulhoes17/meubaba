@@ -1,19 +1,86 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, CheckCircle, Eye, EyeOff } from 'lucide-react'
+import { Loader2, CheckCircle, Eye, EyeOff, AlertTriangle } from 'lucide-react'
+import type { EmailOtpType } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
+
+type Status = 'verificando' | 'pronto' | 'invalido'
 
 export default function RedefinirSenhaPage() {
   const router = useRouter()
   const supabase = createClient()
+  const [status, setStatus] = useState<Status>('verificando')
   const [senha, setSenha] = useState('')
   const [confirma, setConfirma] = useState('')
   const [loading, setLoading] = useState(false)
   const [concluido, setConcluido] = useState(false)
   const [erro, setErro] = useState('')
   const [showSenha, setShowSenha] = useState(false)
+
+  // Garante que existe uma sessão de recuperação antes de mostrar o formulário.
+  // Aceita todos os formatos de link do Supabase:
+  //  - sessão já criada pelo /api/auth/callback (caminho normal)
+  //  - ?code=...                      (PKCE)
+  //  - ?token_hash=...&type=recovery  (template com TokenHash)
+  //  - #access_token=...&refresh_token=... (link enviado pelo painel do Supabase)
+  //  - ?error=... / #error_code=...   (link expirado ou já usado)
+  useEffect(() => {
+    let cancelado = false
+
+    async function verificar() {
+      const url = new URL(window.location.href)
+      const hash = new URLSearchParams(url.hash.replace(/^#/, ''))
+      const limparUrl = () => window.history.replaceState(null, '', '/redefinir-senha')
+
+      if (url.searchParams.get('error') || hash.get('error_code') || hash.get('error')) {
+        limparUrl()
+        if (!cancelado) setStatus('invalido')
+        return
+      }
+
+      // Formato implícito (#access_token) — o cliente PKCE não processa sozinho
+      const accessToken = hash.get('access_token')
+      const refreshToken = hash.get('refresh_token')
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        limparUrl()
+        if (!cancelado) setStatus(error ? 'invalido' : 'pronto')
+        return
+      }
+
+      // Aguarda a inicialização do cliente (que pode já ter trocado um ?code)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        limparUrl()
+        if (!cancelado) setStatus('pronto')
+        return
+      }
+
+      const tokenHash = url.searchParams.get('token_hash')
+      const type = url.searchParams.get('type') as EmailOtpType | null
+      if (tokenHash && type) {
+        const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type })
+        limparUrl()
+        if (!cancelado) setStatus(error ? 'invalido' : 'pronto')
+        return
+      }
+
+      const code = url.searchParams.get('code')
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        limparUrl()
+        if (!cancelado) setStatus(error ? 'invalido' : 'pronto')
+        return
+      }
+
+      if (!cancelado) setStatus('invalido')
+    }
+
+    verificar()
+    return () => { cancelado = true }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -47,6 +114,28 @@ export default function RedefinirSenhaPage() {
               <CheckCircle size={48} color="#16a34a" style={{ margin: '0 auto 1rem' }} />
               <h2 style={{ color: '#1e293b', fontWeight: 800, fontSize: '1.1rem', margin: '0 0 0.5rem' }}>Senha redefinida!</h2>
               <p style={{ color: '#64748b', fontSize: '0.9rem', margin: 0 }}>Redirecionando para o app...</p>
+            </div>
+          ) : status === 'verificando' ? (
+            <div style={{ backgroundColor: 'white', borderRadius: '1.25rem', padding: '2rem', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+              <Loader2 size={36} color="#16a34a" className="animate-spin" style={{ margin: '0 auto 1rem' }} />
+              <p style={{ color: '#64748b', fontSize: '0.9rem', margin: 0 }}>Validando seu link...</p>
+            </div>
+          ) : status === 'invalido' ? (
+            <div style={{ backgroundColor: 'white', borderRadius: '1.25rem', padding: '2rem', textAlign: 'center', border: '1px solid #e2e8f0', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}>
+              <AlertTriangle size={44} color="#f59e0b" style={{ margin: '0 auto 1rem' }} />
+              <h2 style={{ color: '#1e293b', fontWeight: 800, fontSize: '1.1rem', margin: '0 0 0.75rem' }}>Link inválido ou expirado</h2>
+              <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1.5rem' }}>
+                Os links de recuperação valem por pouco tempo e só podem ser usados uma vez.
+                Abra o link no mesmo navegador em que você pediu a recuperação, ou solicite um novo.
+              </p>
+              <button onClick={() => router.push('/recuperar-senha')}
+                style={{ width: '100%', backgroundColor: '#16a34a', border: 'none', borderRadius: '0.875rem', padding: '0.875rem', color: 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}>
+                Solicitar novo link
+              </button>
+              <button onClick={() => router.push('/login')}
+                style={{ width: '100%', marginTop: '0.75rem', background: 'none', border: 'none', color: '#64748b', fontSize: '0.875rem', cursor: 'pointer', padding: '0.5rem' }}>
+                ← Voltar para o login
+              </button>
             </div>
           ) : (
             <div style={{ backgroundColor: 'white', borderRadius: '1.25rem', padding: '2rem', border: '1px solid #e2e8f0', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}>

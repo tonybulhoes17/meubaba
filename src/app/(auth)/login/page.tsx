@@ -11,6 +11,12 @@ export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
 
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
+
   // Link de recuperação no formato antigo (#access_token=...&type=recovery),
   // como o enviado pelo painel do Supabase, pode cair aqui após o redirect da
   // raiz. Encaminha para a tela de nova senha preservando o hash.
@@ -18,14 +24,14 @@ export default function LoginPage() {
     const hash = window.location.hash
     if (hash.includes('type=recovery') || (hash.includes('error_code=') && hash.includes('otp'))) {
       window.location.replace(`/redefinir-senha${hash}`)
+      return
+    }
+    // Link de email (confirmação/recuperação) que falhou no /api/auth/callback
+    if (new URLSearchParams(window.location.search).get('error')) {
+      setError('Esse link é inválido ou expirou. Se estava recuperando a senha, toque em "Esqueci minha senha" e peça um novo link.')
+      window.history.replaceState(null, '', '/login')
     }
   }, [])
-
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
